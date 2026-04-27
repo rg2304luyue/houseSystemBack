@@ -23,12 +23,21 @@ def get_db_session():
 #1.1房源总数接口
 @house_info_bp.route('/houseNums', methods=['GET'])
 def get_housenums():
+    """
+    获取数据库中房源总数
+    :返回: 房源总数量
+    """
     house_total_num=HouseInfo.query.count()
     return success_response(house_total_num)
 
 #1.2热点房源
 @house_info_bp.route('/hotLists', methods=['GET'])
 def get_hotlists():
+    """
+    获取浏览量最高的前4条热门房源
+    :说明: 结果缓存到Redis，有效期5分钟
+    :返回: 热门房源列表
+    """
     # 构建缓存键
     cache_key = 'house_hot_lists'
 
@@ -50,6 +59,11 @@ def get_hotlists():
 #1.3最新房源
 @house_info_bp.route('/newLists', methods=['GET'])
 def get_newlists():
+    """
+    获取最新发布的前4条房源
+    :说明: 结果缓存到Redis，有效期5分钟
+    :返回: 最新房源列表
+    """
     # 构建缓存键
     cache_key = 'house_new_lists'
 
@@ -73,6 +87,12 @@ def get_newlists():
 # 1. 新增房源信息 (对应房东发布房源)
 @house_info_bp.route('/', methods=['POST'])
 def add_house_info():
+    """
+    发布新房源
+    :接收: title, region, community, area, rooms, price, rent_type等必填字段
+    :说明: 布尔字段subway/available/tag_new转为0/1存储，发布时间默认当天
+    :返回: 创建成功的房源信息
+    """
     data = request.get_json()
     if not data:
         return error_response("请求体不能为空", code=Code.BAD_REQUEST)
@@ -121,6 +141,22 @@ def add_house_info():
 # 2. 查询所有房源信息 / 搜索房源 (对应房源展示首页和搜索)
 @house_info_bp.route('/', methods=['GET'])
 def get_all_house_infos():
+    """
+    获取房源列表，支持多条件筛选和分页
+    :接收查询参数:
+        - page/per_page: 分页参数
+        - region: 区域（支持逗号分隔多选，OR逻辑）
+        - community: 小区名关键词
+        - rooms: 户型（支持一居/两居/三居/四居/四居+）
+        - orientation: 朝向（支持多选）
+        - min_price/max_price: 价格范围
+        - rent_type: 整租或合租
+        - subway: 是否近地铁（0/1）
+        - decoration: 装修情况
+        - available: 是否上架
+    :说明: 结果缓存到Redis
+    :返回: 分页房源列表及总数
+    """
     session = get_db_session()
     try:
         page = request.args.get('page', 1, type=int)
@@ -287,6 +323,12 @@ def get_all_house_infos():
 # 3. 查询单个房源信息 (对应点击查看房源详情)
 @house_info_bp.route('/<int:house_id>', methods=['GET'])
 def get_house_info_by_id(house_id):
+    """
+    根据ID获取单个房源详情
+    :param house_id: 房源ID
+    :说明: 优先从Redis缓存读取
+    :返回: 房源详细信息
+    """
     session = get_db_session()
     try:
         # 构建缓存键
@@ -319,6 +361,12 @@ def get_house_info_by_id(house_id):
 # 4. 更新房源信息 (对应房东编辑房源)
 @house_info_bp.route('/<int:house_id>', methods=['PUT'])
 def update_house_info(house_id):
+    """
+    更新房源信息
+    :param house_id: 房源ID
+    :接收: 需要更新的字段（不允许修改id）
+    :返回: 更新后的房源信息
+    """
     session = get_db_session()
     house = session.get(HouseInfo, house_id)
     if not house:
@@ -356,6 +404,12 @@ def update_house_info(house_id):
 # 5. 删除房源信息 (对应房东删除房源)
 @house_info_bp.route('/<int:house_id>', methods=['DELETE'])
 def delete_house_info(house_id):
+    """
+    删除房源
+    :param house_id: 房源ID
+    :说明: 同时清除Redis缓存
+    :返回: 删除成功信息
+    """
     session = get_db_session()
     house = session.get(HouseInfo, house_id)
     if not house:
@@ -374,7 +428,6 @@ def delete_house_info(house_id):
         session.rollback()
         current_app.logger.error(f"删除房源 {house_id} 失败: {e}")
         return error_response(f"数据库错误: {str(e)}", code=Code.INTERNAL_SERVER_ERROR)
-
 
 
 @house_info_bp.route('/<int:house_id>/upload_image', methods=['POST'])
@@ -399,7 +452,11 @@ def upload_house_image(house_id):
 #1、户型占比
 @house_info_bp.route('/piedata', methods=['GET'])
 def get_house_piedata():
-
+    """
+    获取房源户型分布统计（用于管理后台饼图）
+    :说明: 将户型归并为一居室/二居室/三居室/四居室/五居及以上
+    :返回: 各户型的名称和数量
+    """
     result= (HouseInfo.query.with_entities(HouseInfo.rooms,func.count())
              .group_by(HouseInfo.rooms).order_by(func.count().desc()).all())
     data=[]
@@ -434,6 +491,10 @@ def get_house_piedata():
 #小区房源前20
 @house_info_bp.route('/columndata', methods=['GET'])
 def get_house_columndata():
+    """
+    获取各小区房源数量前20排名（用于管理后台柱状图）
+    :返回: 小区名称列表和对应数量列表
+    """
     result= (HouseInfo.query.with_entities(HouseInfo.community,func.count()).group_by(HouseInfo.community)
              .order_by(func.count().desc()).all())
     community_list = []
@@ -450,6 +511,10 @@ def get_house_columndata():
 # 获取浏览量最高的房源
 @house_info_bp.route('/views', methods=['GET'])
 def get_house_info_views():
+    """
+    获取浏览量最高的单个房源
+    :返回: 浏览量第一的房源信息
+    """
     house = get_house_by_views()
     if not house:
         return error_response("获取失败", code=Code.NOT_FOUND)
@@ -459,6 +524,11 @@ def get_house_info_views():
 # 增加浏览次数
 @house_info_bp.route('/views', methods=['POST'])
 def add_house_info_views():
+    """
+    给指定房源增加1次浏览量
+    :接收: houseid(房源ID)
+    :返回: 操作成功或失败信息
+    """
     data = request.get_json()
     if add_views_by_id(data):
         return success_response(message="增加成功", code=Code.GET_OK)
@@ -469,6 +539,12 @@ def add_house_info_views():
 # 根据房东名字查找房源
 @house_info_bp.route('/landlord', methods=['POST'])
 def get_house_info_landlord():
+    """
+    根据房东用户名查询其名下所有房源
+    :接收: username(房东用户名)
+    :说明: 同时标记每个房源是否已有租约(isRant字段)
+    :返回: 房源列表
+    """
     data = request.get_json()
     if data is None:
         return error_response("请求数据为空", code=Code.NOT_FOUND)

@@ -11,6 +11,15 @@ contract_bp = Blueprint("contract", __name__)
 # 新增 同时插入rental表
 @contract_bp.route("/contracts", methods=["POST"])
 def create_contract():
+    """
+    创建租房合同，同时创建租房记录
+    :接收: rentValue, purpose, startDate, endDate,
+           landlordName, landlordId, landlordPhone,
+           tenantName, tenantId, tenantPhone,
+           formattedRent, currentDate
+    :说明: 同时向contract表和rental表各插入一条记录
+    :返回: 合同信息及关联的租房记录
+    """
     data = request.json
 
     # 验证必要字段
@@ -43,6 +52,12 @@ def create_contract():
 
 @contract_bp.route("/contracts/<string:tenantName>/<string:landlord_id>", methods=["GET"])
 def get_contract(landlord_id, tenantName):
+    """
+    根据租客姓名和房东ID查询合同
+    :param landlord_id: 房东ID
+    :param tenantName: 租客姓名
+    :返回: 合同详情
+    """
     try:
         contract = get_contract_by_landlordId_and_tenant(landlord_id, tenantName)
         return success_response(data=contract.to_dict(), message="返回成功", code=200)

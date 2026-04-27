@@ -10,6 +10,13 @@ log_bp = Blueprint('log_management', __name__, url_prefix='/admin/logs')
 
 @log_bp.route('/', methods=['GET'])
 def get_logs():
+    """
+    获取系统日志列表，支持筛选和分页
+    :接收查询参数: page, per_page, level(日志级别),
+                   start_date, end_date, search(消息内容关键词)
+    :说明: 日志由DatabaseLogHandler自动写入，记录所有Flask请求和错误
+    :返回: 日志列表及分页信息
+    """
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     level = request.args.get('level')
@@ -59,6 +66,11 @@ def get_logs():
 
 @log_bp.route('/delete', methods=['POST']) # 使用 POST 更安全，或者 DELETE 带请求体
 def delete_logs():
+    """
+    批量删除日志
+    :接收: ids(要删除的日志ID列表)
+    :返回: 删除数量
+    """
     # 简单的实现：删除指定 ID 的日志
     # 更复杂的可以按日期范围、级别等删除
     data = request.get_json()
@@ -80,6 +92,11 @@ def delete_logs():
 
 @log_bp.route('/levels', methods=['GET'])
 def get_log_levels():
+    """
+    获取数据库中实际存在的日志级别及各级别数量
+    :说明: 用于前端筛选器的动态选项
+    :返回: 级别名称和数量的列表
+    """
     # 获取数据库中实际存在的日志级别，用于前端筛选器
     levels = db.session.query(LogEntry.level, func.count(LogEntry.level)).group_by(LogEntry.level).all()
     return jsonify([{"level": level, "count": count} for level, count in levels])

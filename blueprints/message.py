@@ -43,7 +43,14 @@ def handle_errors(f):
 @message_bp.route("/messages", methods=["GET"])
 @handle_errors
 def get_messages():
-    """获取消息接口"""
+    """
+    获取消息列表，支持三种查询方式
+    :接收查询参数:
+        - sender: 按发送者查询
+        - receiver: 按接收者查询
+        - user1+user2: 查询两个用户之间的所有消息
+    :返回: 消息列表
+    """
     sender = request.args.get('sender')
     user1 = request.args.get('user1')
     user2 = request.args.get('user2')
@@ -74,7 +81,12 @@ def get_messages():
 @message_bp.route("/messages", methods=["POST"])
 @handle_errors
 def post_message():
-    """发送消息接口"""
+    """
+    发送消息
+    :接收: content, sender_username, receiver_username
+    :说明: 自动获取或创建channel，通过SocketIO广播给所有连接的客户端
+    :返回: 创建成功的消息
+    """
     if not request.is_json:
         return jsonify({
             "status": "error",
@@ -113,14 +125,22 @@ def post_message():
 @message_bp.route("/messages/<string:sender_username>", methods=["GET"])
 @handle_errors
 def get_sender_message(sender_username):
-    """获取任意用户发送的消息"""
+    """
+    获取指定用户发送的所有消息
+    :param sender_username: 发送者用户名
+    :返回: 消息列表
+    """
     messages = get_messages_by_sender(sender_username)
     return success_response(data={"messages": [msg.to_dict() for msg in messages]})
 
 @message_bp.route("/messages/receiver/<string:receiver_username>", methods=["GET"])
 @handle_errors
 def get_receiver_message(receiver_username):
-    """获取任意用户发送的消息"""
+    """
+    获取指定用户收到的所有消息
+    :param receiver_username: 接收者用户名
+    :返回: 消息列表
+    """
     messages = get_messages_by_receiver(receiver_username)
     return success_response(data={"messages": [msg.to_dict() for msg in messages]})
 

@@ -185,7 +185,15 @@ house_bot = HouseRecommendationBot()
 
 @chat_ai_bp.route('/chat', methods=['POST'])
 def chat_with_ai():
-    """智能房产推荐聊天接口"""
+    """
+    智能房产推荐对话接口（这是你要扩展成Agent的核心）
+    :接收: message(用户消息), history(历史对话), api_key(OpenAI key), model(模型名)
+    :说明: 使用OpenAI Function Calling，AI可自动判断并调用以下三个函数：
+           - search_houses_by_criteria: 按条件搜房
+           - get_house_details: 查单个房源详情
+           - get_popular_houses: 获取热门推荐
+    :返回: AI回复内容及是否调用了函数
+    """
     try:
         data = request.get_json()
         user_message = data.get('message', '')
@@ -289,7 +297,12 @@ def chat_with_ai():
 
 @chat_ai_bp.route('/houses/search', methods=['POST'])
 def search_houses():
-    """直接搜索房源接口"""
+    """
+    直接按条件搜索房源（不经过AI）
+    :接收: min_price, max_price, region, min_area, max_area,
+           rooms, rent_type, subway, decoration
+    :返回: 符合条件的房源列表（按价格升序，最多20条）
+    """
     try:
         data = request.get_json()
         result = house_bot.search_houses_by_criteria(**data)
@@ -314,7 +327,11 @@ def search_houses():
 
 @chat_ai_bp.route('/houses/<int:house_id>', methods=['GET'])
 def get_house_detail(house_id):
-    """获取房源详情接口"""
+    """
+    获取单个房源详情（供AI函数调用）
+    :param house_id: 房源ID
+    :返回: 房源详细信息
+    """
     try:
         result = house_bot.get_house_details(house_id)
         
@@ -338,7 +355,11 @@ def get_house_detail(house_id):
 
 @chat_ai_bp.route('/houses/popular', methods=['GET'])
 def get_popular_houses():
-    """获取热门房源接口"""
+    """
+    获取热门房源列表（按浏览量排序）
+    :接收: limit(查询参数，返回数量，默认10)
+    :返回: 热门房源列表
+    """
     try:
         limit = request.args.get('limit', 10, type=int)
         result = house_bot.get_popular_houses(limit)

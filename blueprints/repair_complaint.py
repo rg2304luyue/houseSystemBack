@@ -7,6 +7,13 @@ repair_bp = Blueprint("repair", __name__)
 
 @repair_bp.route("/repaires", methods=["POST"])
 def create_repaire():
+    """
+    提交维修申报或投诉
+    :接收: report_reason(repair/complaint), house_address, repair_type,
+           repair_description, complaint_content, complaint_person, agreed_terms
+    :说明: 空字段自动处理为空字符串，记录创建时间
+    :返回: 创建成功的记录
+    """
     data = request.json
     print(data)
     # 检查请求数据是否为空
@@ -56,5 +63,9 @@ def create_repaire():
 
 @repair_bp.route('/complaint-persons', methods=['GET'])
 def complaint_persons():
+    """
+    获取可投诉对象列表（userType=2的用户，即所有房东）
+    :返回: 房东id和name的列表
+    """
     persons = get_complaint_persons()
     return jsonify(persons)

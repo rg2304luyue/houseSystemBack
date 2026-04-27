@@ -19,6 +19,12 @@ user = Blueprint("user", __name__, url_prefix="/user")
 
 @user.route("/register", methods=["POST"])
 def register():
+    """
+    用户注册接口
+    :接收: phone(手机号), password(密码), email(邮箱)
+    :返回: 注册成功或失败信息
+    :说明: 检查手机号和邮箱是否已注册，密码会自动哈希加密存储
+    """
     phone = request.form.get('phone')
     password = request.form.get('password')
     email = request.form.get('email')
@@ -56,6 +62,11 @@ def register():
 
 @user.route("/login", methods=["POST"])
 def login():
+    """
+    手机号+密码登录接口
+    :接收: phone(手机号), password(密码)
+    :返回: JWT token，有效期24小时
+    """
     phone = request.form.get('phone')
     password = request.form.get('password')
 
@@ -82,6 +93,11 @@ def login():
 
 @user.route("/email-login", methods=["POST"])
 def email_login():
+    """
+    邮箱+密码登录接口
+    :接收: email(邮箱), password(密码)
+    :返回: JWT token，有效期24小时
+    """
     email = request.form.get('email')
     password = request.form.get('password')
 
@@ -108,6 +124,11 @@ def email_login():
 @user.route("/userinfo", methods=["GET"])
 @token_required
 def userinfo():
+    """
+    获取当前登录用户信息
+    :需要: Authorization请求头中携带token
+    :返回: 用户基本信息（不含密码）
+    """
     current_user = g.user
     # 修正点：使用 message 参数
     return success_response(code=Code.GET_OK, data=current_user.to_dict(), message="获取用户信息成功")
@@ -115,6 +136,11 @@ def userinfo():
 # 根据用户名获取用户
 @user.route("/userinfo/<string:name>", methods=["GET"])
 def get_user_by_username(name):
+    """
+    根据用户名查询用户信息
+    :param name: 用户名
+    :返回: 用户基本信息
+    """
     user = get_user_by_name(name)
 
     if user is None:
@@ -126,6 +152,11 @@ def get_user_by_username(name):
 @user.route("/userinfo/password", methods=["PUT"])
 # @token_required
 def userinfo_password():
+    """
+    根据用户ID修改密码
+    :接收: id(用户ID), password(新密码)
+    :返回: 更新成功或失败信息
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="密码不能为空")
@@ -151,6 +182,12 @@ def userinfo_password():
 @user.route("/userinfo/phone", methods=["GET"])
 @token_required
 def userinfo_phone():
+    """
+    根据手机号查询用户信息
+    :接收: phone(手机号)
+    :需要: Authorization请求头中携带token
+    :返回: 用户基本信息
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
@@ -166,6 +203,12 @@ def userinfo_phone():
 # 用户信息修改接口，修改部分内容
 @user.route("/userinfo", methods=["PUT"])
 def userinfo_update():
+    """
+    更新用户基本信息
+    :接收: id, name, addr, email, identityCard, phone
+    :说明: 身份证号一旦填写不可更改，允许修改的字段有限
+    :返回: 更新后的用户信息
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
@@ -212,6 +255,12 @@ def userinfo_update():
 # 修改，使用celery异步实现发送邮件验证码
 @user.route("/userinfo/password", methods=["POST"])
 def password_reset():
+    """
+    发送密码重置邮箱验证码
+    :接收: email(邮箱)
+    :说明: 生成6位验证码存入Redis，有效期2分钟，通过Celery异步发送邮件
+    :返回: 验证码发送状态
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
@@ -233,6 +282,12 @@ def password_reset():
 # 成为房东的验证码
 @user.route("/userinfo/tolanlord", methods=["POST"])
 def tolanlord():
+    """
+    发送申请成为房东的邮箱验证码
+    :接收: email(邮箱)
+    :说明: 生成6位验证码存入Redis，有效期2分钟，通过Celery异步发送邮件
+    :返回: 验证码发送状态
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
@@ -254,6 +309,11 @@ def tolanlord():
 # 根据邮箱改密码
 @user.route('/userinfo/password_e', methods=['PUT'])
 def userinfo_password_e():
+    """
+    根据邮箱修改密码（用于忘记密码场景）
+    :接收: email(邮箱), password(新密码)
+    :返回: 更新成功或失败信息
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="密码不能为空")
@@ -281,6 +341,12 @@ def userinfo_password_e():
 # 改变userType
 @user.route("/userinfo/usertype", methods=["PUT"])
 def to_landlord():
+    """
+    将普通用户升级为房东
+    :接收: email(邮箱)
+    :说明: userType从1改为2，需要前端先验证邮箱验证码
+    :返回: 更新后的用户信息
+    """
     data = request.json
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
@@ -304,6 +370,11 @@ def to_landlord():
 # 获取avatarUrl
 @user.route("/userinfo/avatar", methods=["GET"])
 def get_avatar():
+    """
+    根据用户ID获取头像URL
+    :接收: id(查询参数，用户ID)
+    :返回: 包含avatarUrl的用户信息
+    """
     id = request.args.get('id')  # 改为获取查询参数
     if not id:
         return error_response(code=Code.BAD_REQUEST, message="用户ID不能为空")
@@ -323,6 +394,12 @@ def get_avatar():
 # 保存用户上传头像，并处理成url
 @user.route("/userinfo/avatarurl", methods=["POST"])
 def add_avatar():
+    """
+    上传用户头像到本地服务器
+    :接收: userId(表单), avatar(图片文件)
+    :说明: 将图片保存到项目根目录的images文件夹，生成本地URL存入数据库
+    :返回: 新头像的访问URL
+    """
     user_id = request.form.get("userId")  # 注意这里是 userId 而不是 id
     file = request.files.get("avatar")
 
@@ -356,6 +433,11 @@ def add_avatar():
 # 提供images目录下的静态访问
 @user.route('/images/<filename>')
 def serve_image(filename):
+    """
+    提供本地图片的静态访问服务
+    :param filename: 图片文件名
+    :返回: 图片文件内容
+    """
     project_root = os.path.abspath(os.path.dirname(__file__))
     images_folder = os.path.join(project_root, '..', 'images')
     return send_from_directory(images_folder, filename)

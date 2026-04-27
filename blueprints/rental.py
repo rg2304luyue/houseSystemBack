@@ -8,6 +8,13 @@ rental_bp = Blueprint("rental", __name__)
 # 获得某租客的所有租房记录
 @rental_bp.route("/rental/tenants/<string:tenant_username>", methods=["GET"])
 def get_rental_by_tenant(tenant_username):
+    """
+    获取某租客的所有租房记录（含合同和房源详情）
+    :param tenant_username: 租客用户名
+    :说明: 聚合了rental、contract、house_info三张表的数据，
+           包含用途、租期、房源标题、区域、房东电话、租金等
+    :返回: 租房记录列表
+    """
     try:
         rentals = get_rental_by_tenant_username(tenant_username)
         data = []

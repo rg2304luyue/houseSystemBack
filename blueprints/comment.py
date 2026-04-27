@@ -6,6 +6,11 @@ comment_bp = Blueprint("comment", __name__)
 # 根据房源id获取评论
 @comment_bp.route("/comments/<int:house_id>", methods=["GET"])
 def get_comments(house_id):
+    """
+    根据房源ID获取所有评论
+    :param house_id: 房源ID
+    :返回: 该房源下的评论列表
+    """
     try:
         # 调用 comment_service 中的函数获取评论
         comments = get_comment_by_house_id(house_id)
@@ -31,6 +36,11 @@ def get_comments(house_id):
 # 根据评论id获取评论
 @comment_bp.route("/comments/<int:comment_id>", methods=["GET"])
 def get_comment_by_id(comment_id):
+    """
+    添加新评论
+    :接收: house_id, username, type(1租客/2房东), desc(内容), at(回复的评论ID，可选)
+    :返回: 创建成功的评论信息
+    """
     try:
         # 调用 comment_service 中的函数获取评论
         comment = get_comment_by_id(comment_id)

@@ -8,6 +8,11 @@ appointment_bp = Blueprint("appointment", __name__)
 # 创建预约
 @appointment_bp.route("/appointments", methods=["POST"])
 def create_appointment():
+    """
+    创建看房预约
+    :接收: username(预约人), property(房源名称), time(预约时间，ISO8601格式)
+    :返回: 创建成功的预约信息
+    """
     data = request.json
 
     required_fields = ['username', 'property', 'time']

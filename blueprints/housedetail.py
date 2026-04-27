@@ -14,6 +14,13 @@ housedetail_bp = Blueprint('housedetail_bp', __name__, url_prefix='/housedetail'
 
 @housedetail_bp.route('/', methods=['POST'])
 def add_house_detail():
+    """
+    为已有房源添加详细信息
+    :接收: house_info_id(房源ID), photos(图片URL列表),
+           facilities(设施字典), map_coordinates(地图坐标)
+    :说明: 每个房源只能有一条详情记录，添加成功后清除相关缓存
+    :返回: 创建成功的详情信息
+    """
     data = request.get_json()
     if not data:
         return error_response("请求体不能为空", code=Code.BAD_REQUEST)
@@ -85,6 +92,12 @@ def add_house_detail():
 
 @housedetail_bp.route('/<int:house_info_id>', methods=['GET'])
 def get_house_detail_by_house_id(house_info_id):
+    """
+    根据房源ID获取房源详情（含图片、设施、地图坐标）
+    :param house_info_id: 房源ID
+    :说明: 优先从Redis缓存读取，缓存有效期5分钟
+    :返回: 房源详情信息
+    """
     # session = db.session
     try:
         # 构建缓存键
