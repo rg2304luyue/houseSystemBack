@@ -127,6 +127,8 @@ def add_house_info():
         session.add(new_house)
         session.commit()
         session.refresh(new_house)  # 获取自动生成的ID等
+        RedisCache.delete_cache('house_new_lists')
+
         return success_response(data=new_house.to_dict(), message="房源信息添加成功", code=Code.SAVE_OK)
     except SQLAlchemyError as e:
         session.rollback()
@@ -340,19 +342,18 @@ def get_house_info_by_id(house_id):
             return success_response(data=cached_data, message="查询成功", code=Code.GET_OK)
 
         # 不显示，证明返回了缓存中的数据
-        print("houseinfo获取单个房源无缓存")
+        print(f"house{house_id}无缓存信息")
 
         house = session.get(HouseInfo, house_id)  # SQLAlchemy 2.0 style
         # 或者 house = session.query(HouseInfo).filter_by(id=house_id).first()
         if house:
-            return success_response(data=house.to_dict(), code=Code.GET_OK)
-        else:
-            # 转换为字典格式
             house_data = house.to_dict()
-            # 将查询结果存入 Redis 缓存
-            RedisCache.set_cache(cache_key, json.dumps(house_data))
-
+            # 正确：在找到数据时设置缓存，且不重复使用 json.dumps
+            RedisCache.set_cache(cache_key, house_data)
+            return success_response(data=house_data, code=Code.GET_OK)
+        else:
             return error_response("房源信息未找到", code=Code.NOT_FOUND)
+
     except SQLAlchemyError as e:
         current_app.logger.error(f"查询房源 {house_id} 失败: {e}")
         return error_response(f"数据库错误: {str(e)}", code=Code.INTERNAL_SERVER_ERROR)
@@ -390,6 +391,11 @@ def update_house_info(house_id):
                 setattr(house, key, value)
 
         session.commit()
+        RedisCache.delete_cache(f'house_info:{house_id}')
+        # 建议同时清理列表缓存，因为列表中的价格等信息也已过期
+        RedisCache.delete_cache('house_hot_lists')
+        RedisCache.delete_cache('house_new_lists')
+
         return success_response(data=house.to_dict(), message="房源信息更新成功", code=Code.UPDATE_OK)
     except SQLAlchemyError as e:
         session.rollback()

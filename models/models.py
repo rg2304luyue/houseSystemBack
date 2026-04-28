@@ -59,21 +59,21 @@ class UserInfo(Base):
             "avatarUrl": self.avatarUrl,
         }
 
-class Appointment(Base):
-    __tablename__ = 'appointment'
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment='预约id')
-    username: Mapped[Optional[str]] = mapped_column(String(255))
-    property: Mapped[Optional[str]] = mapped_column(String(255))
-    time: Mapped[datetime] = mapped_column(DateTime, comment='预约时间')
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "username": self.username,
-            "property": self.property,
-            "time": self.time.strftime("%Y-%m-%d %H:%M:%S") if self.time else None
-        }
+# class Appointment(Base):
+#     __tablename__ = 'appointment'
+#
+#     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, comment='预约id')
+#     username: Mapped[Optional[str]] = mapped_column(String(255))
+#     property: Mapped[Optional[str]] = mapped_column(String(255))
+#     time: Mapped[datetime] = mapped_column(DateTime, comment='预约时间')
+#
+#     def to_dict(self):
+#         return {
+#             "id": self.id,
+#             "username": self.username,
+#             "property": self.property,
+#             "time": self.time.strftime("%Y-%m-%d %H:%M:%S") if self.time else None
+#         }
 
 class Contract(Base):
     __tablename__ = 'contract'
