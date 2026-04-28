@@ -164,14 +164,14 @@ def get_all_house_infos():
 
         # 构建缓存键
         cache_key = f'all_house_infos:{page}:{per_page}'
-        for key in request.args:
+        for key in sorted(request.args.keys()):
             if key not in ['page', 'per_page']:
                 cache_key += f':{key}:{request.args[key]}'
 
-                # 检查缓存
-                cached_data = RedisCache.get_cache(cache_key)
-                if cached_data:
-                    return success_response(cached_data, message="查询成功", code=Code.GET_OK)
+        # 检查缓存
+        cached_data = RedisCache.get_cache(cache_key)
+        if cached_data:
+            return success_response(cached_data, message="查询成功", code=Code.GET_OK)
 
         # 不显示，证明返回了缓存中的数据
         print("houseinfo获取单页所有房源无缓存")
