@@ -1,14 +1,13 @@
 from flask import Blueprint, request, current_app, jsonify
-import openai
 import json
-import re
-from sqlalchemy import and_, or_
+from core.agent.react_agent import ReactAgent
 from models.house_model import HouseInfo
 from exts.db import db
 from utils.response_utils import success_response, error_response, Code
 from decorators.decorators import token_required
 
 chat_ai_bp = Blueprint('chat_ai', __name__, url_prefix='/chat-ai')
+my_agent = ReactAgent()
 
 class HouseRecommendationBot:
     def __init__(self):
@@ -183,111 +182,32 @@ class HouseRecommendationBot:
 # 创建房产推荐机器人实例
 house_bot = HouseRecommendationBot()
 
+
 @chat_ai_bp.route('/chat', methods=['POST'])
 def chat_with_ai():
-    """
-    智能房产推荐对话接口（这是你要扩展成Agent的核心）
-    :接收: message(用户消息), history(历史对话), api_key(OpenAI key), model(模型名)
-    :说明: 使用OpenAI Function Calling，AI可自动判断并调用以下三个函数：
-           - search_houses_by_criteria: 按条件搜房
-           - get_house_details: 查单个房源详情
-           - get_popular_houses: 获取热门推荐
-    :返回: AI回复内容及是否调用了函数
-    """
     try:
         data = request.get_json()
         user_message = data.get('message', '')
         chat_history = data.get('history', [])
-        api_key = data.get('api_key', '')
-        model = data.get('model', 'gpt-3.5-turbo')
-        
+
         if not user_message:
             return error_response(code=Code.BAD_REQUEST, message="消息内容不能为空")
-        
-        if not api_key:
-            return error_response(code=Code.BAD_REQUEST, message="API Key不能为空")
-        
-        # 设置OpenAI配置
-        openai.api_key = api_key
-        
-        # 构建消息历史
-        messages = [
-            {
-                "role": "system",
-                "content": """你是一个专业的房产推荐助手。你可以帮助用户：
-1. 根据预算、位置、面积等需求推荐合适的房源
-2. 查询特定房源的详细信息
-3. 提供热门房源推荐
-4. 回答房产相关的问题
 
-当用户询问房源信息时，请使用提供的函数来查询数据库。
-在推荐房源时，请考虑用户的具体需求，如价格范围、区域偏好、房间数量等。
-请用友好、专业的语调与用户交流。"""
-            }
-        ]
-        
-        # 添加聊天历史
-        messages.extend(chat_history)
-        
-        # 添加当前用户消息
-        messages.append({
-            "role": "user", 
-            "content": user_message
-        })
-        
-        # 调用OpenAI API
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=messages,
-            functions=house_bot.house_search_functions,
-            function_call="auto",
-            temperature=0.7,
-            max_tokens=1000
-        )
-        
-        message = response.choices[0].message
-        
-        # 检查是否需要调用函数
-        if message.get("function_call"):
-            function_name = message["function_call"]["name"]
-            function_args = json.loads(message["function_call"]["arguments"])
-            
-            # 执行函数调用
-            function_result = house_bot.execute_function_call(function_name, function_args)
-            
-            # 将函数结果添加到消息历史
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "function_call": message["function_call"]
-            })
-            messages.append({
-                "role": "function",
-                "name": function_name,
-                "content": json.dumps(function_result, ensure_ascii=False)
-            })
-            
-            # 再次调用API生成最终回复
-            final_response = openai.ChatCompletion.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000
-            )
-            
-            ai_reply = final_response.choices[0].message.content
-        else:
-            ai_reply = message.content
-        
+        # 格式化历史记录
+        formatted_history = [{"role": msg["role"], "content": msg["content"]} for msg in chat_history]
+
+        # 3. 使用 my_agent 调用 execute 方法
+        ai_reply = my_agent.execute(user_message, history=formatted_history)
+
         return success_response(
             code=Code.GET_OK,
             data={
                 "reply": ai_reply,
-                "function_called": message.get("function_call") is not None
+                "function_called": True
             },
             message="对话成功"
         )
-        
+
     except Exception as e:
         current_app.logger.error(f"Chat AI error: {e}")
         return error_response(

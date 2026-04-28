@@ -18,7 +18,10 @@ class ChatModelFactory(BaseModelFactory):
 
 class EmbeddingsFactory(BaseModelFactory):
     def generate(self) -> Optional[Embeddings | BaseChatModel]:
-        return DashScopeEmbeddings(model=rag_config["embedding_model_name"])
+        return DashScopeEmbeddings(
+            model=rag_config["embedding_model_name"],
+            dashscope_api_key=Config.DASHSCOPE_API_KEY
+        )
 
 chat_model = ChatModelFactory().generate()
 embedding_model = EmbeddingsFactory().generate()

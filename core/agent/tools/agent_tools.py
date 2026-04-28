@@ -1,75 +1,56 @@
-import random
-
-from langchain_core.tools import tool
-from core.rag.rag_service import RagSummarizeService
-from core.agent_utils.config_handler import agent_config
-from core.agent_utils.path_tool import get_abs_path
+import json
 import logging
+from langchain_core.tools import tool
+from models.house_model import HouseInfo
+from exts.db import db
+from flask import current_app
+
 logger = logging.getLogger(__name__)
 
-rag = RagSummarizeService()
-user_ids = ["1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008"]
-month_arr = ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06",
-             "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12"]
-external_data = {}
 
-@tool(description="从向量存储中检索参考资料")
-def rag_summarize(query: str) -> str:
-    return rag.rag_summarize(query)
+# 如果你还需要保留原来的 RAG 工具，可以把 rag_summarize 留着
+# @tool(description="从向量存储中检索租房指南、政策等参考资料")
+# def rag_summarize(query: str) -> str: ...
 
-@tool(description="获取指定城市的天气，以消息字符串的形式返回")
-def get_weather(city: str) -> str:
-    return f"城市{city}天气良好，为晴天"
-
-@tool(description="获取城市的名称，以纯字符串的形式返回")
-def get_user_location() -> str:
-    return random.choice(["长沙", "北京", "上海", "成都"])
-
-@tool(description="获取用户ID，以纯字符串的形式返回")
-def get_user_id() -> str:
-    return random.choice(user_ids)
-
-@tool(description="获取当前月份，以纯字符串的形式返回")
-def get_current_month() -> str:
-    return random.choice(month_arr)
-
-def generate_external_data() -> str:
-    if not external_data:
-        external_data_path = get_abs_path(agent_config["external_data_path"])
-
-        if not external_data_path:
-            raise FileNotFoundError(f"外部数据文件{external_data_path}不存在")
-
-        with open(external_data_path, "r", encoding="utf-8") as f:
-            for line in f.readlines()[1:]:
-                arr: list[str] = line.strip().split(",")
-
-                user_id = arr[0].replace('"', "")
-                feature = arr[1].replace('"', "")
-                efficiency = arr[2].replace('"', "")
-                consumables = arr[3].replace('"', "")
-                comparison = arr[4].replace('"', "")
-                time = arr[5].replace('"', "")
-
-                if user_id not in external_data:
-                    external_data[user_id] = {}
-
-                external_data[user_id][time] = {
-                    "特征": feature,
-                    "效率": efficiency,
-                    "耗材": consumables,
-                    "对比": comparison,
-                }
-
-@tool(description="从外部系统中获取指定用户的在指定月份的使用记录，以纯字符串形式返回，如果未检索到则返回空字符串")
-def fetch_external_data(user_id: str, month: str) -> str:
-    generate_external_data()
+@tool(
+    description="根据条件搜索房源。参数需提供 JSON 字符串格式的条件，可包含 min_price, max_price, region, rooms, subway(bool) 等")
+def search_houses_by_criteria(query_params_json: str) -> str:
     try:
-        return external_data[user_id][month]
-    except KeyError:
-        logger.warn(f"[fetch_external_data]未能检索到用户:{user_id}在{month}的数据。")
-        return ""
+        kwargs = json.loads(query_params_json)
+        query = db.session.query(HouseInfo).filter(HouseInfo.available == 1)
 
-@tool(description="无入参，无返回值，调用后触发中间件自动为报告生成场景动态注入上下文信息，为后续提示词切换提供上下文支撑")
-def fill_context_for_report():
-    return "fill_context_for_report已调用"
+        if kwargs.get('min_price'): query = query.filter(HouseInfo.price >= kwargs['min_price'])
+        if kwargs.get('max_price'): query = query.filter(HouseInfo.price <= kwargs['max_price'])
+        if kwargs.get('region'): query = query.filter(HouseInfo.region.like(f"%{kwargs['region']}%"))
+        if kwargs.get('rooms'): query = query.filter(HouseInfo.rooms.like(f"%{kwargs['rooms']}%"))
+        if kwargs.get('subway'): query = query.filter(HouseInfo.subway == 1)
+
+        houses = query.order_by(HouseInfo.price.asc()).limit(5).all()  # 建议限制返回数量给大模型
+        if not houses:
+            return "没有找到符合条件的房源，请建议用户放宽条件。"
+
+        return json.dumps([house.to_dict() for house in houses], ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Tool search error: {e}")
+        return f"查询出错: {str(e)}"
+
+
+@tool(description="根据房源ID获取详细信息，参数为房源ID(int)")
+def get_house_details(house_id: int) -> str:
+    try:
+        house = db.session.query(HouseInfo).filter(HouseInfo.id == house_id).first()
+        if house:
+            return json.dumps(house.to_dict(), ensure_ascii=False)
+        return "未找到该ID的房源"
+    except Exception as e:
+        return f"查询出错: {str(e)}"
+
+
+@tool(description="获取热门房源推荐，默认返回浏览量最高的前5套")
+def get_popular_houses(limit: int = 5) -> str:
+    try:
+        houses = db.session.query(HouseInfo).filter(HouseInfo.available == 1) \
+            .order_by(HouseInfo.page_views.desc()).limit(limit).all()
+        return json.dumps([house.to_dict() for house in houses], ensure_ascii=False)
+    except Exception as e:
+        return f"查询出错: {str(e)}"

@@ -1,30 +1,46 @@
 from langchain.agents import create_agent
 from core.agent_model.factor import chat_model
 from core.agent_utils.prompt_loader import load_system_prompt
-from core.agent.tools.agent_tools import (rag_summarize, get_weather, get_user_id,
-                                     get_user_location, get_current_month, fill_context_for_report)
+# 导入我们新写的房产工具
+from core.agent.tools.agent_tools import search_houses_by_criteria, get_house_details, get_popular_houses
 from core.agent.tools.middleware import monitor_tool, log_before_model, report_prompt_switch
+
 
 class ReactAgent:
     def __init__(self):
         self.agent = create_agent(
             model=chat_model,
             system_prompt=load_system_prompt(),
-            tools=[rag_summarize, get_weather, get_user_id,
-                   get_user_location, get_current_month, fill_context_for_report],
+            # 注册房产工具
+            tools=[search_houses_by_criteria, get_house_details, get_popular_houses],
             middleware=[monitor_tool, log_before_model, report_prompt_switch],
         )
 
+    def execute(self, query: str, history: list = None):
+        """新增的非流式执行方法，供 Flask 接口调用"""
+        if history is None:
+            history = []
+
+        messages = history + [{"role": "user", "content": query}]
+        input_dict = {
+            "messages": messages
+        }
+
+        # 运行 agent 并获取最终结果，带上原本底层的 context 防报错
+        for chunk in self.agent.stream(input_dict, stream_mode="values", context={"report": False}):
+            latest_message = chunk["messages"][-1]
+
+        return latest_message.content
+
     def execute_stream(self, query: str):
+        """你原来保留的流式输出方法"""
         input_dict = {
             "messages": [
                 {"role": "user", "content": query}
             ]
         }
-
-        # 第三个参数context就是上下文runtime中的信息，就是我们做提示词的切换
         for chunk in self.agent.stream(input_dict, stream_mode="values", context={"report": False}):
-            latest_message = chunk["messages"][-1]  # 有历史记录所以取最后一条
+            latest_message = chunk["messages"][-1]
             if latest_message.content:
                 yield latest_message.content.strip() + "\n"
 
