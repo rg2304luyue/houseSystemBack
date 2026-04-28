@@ -1,5 +1,5 @@
-from typing import Optional
-from sqlalchemy import Date, DateTime, Float, Integer, String, text
+from typing import Optional, List
+from sqlalchemy import Date, DateTime, Float, Integer, String, text, ForeignKey, Enum, Text
 from sqlalchemy.dialects.mysql import INTEGER, TINYINT, VARCHAR, TEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import datetime
@@ -204,4 +204,46 @@ class Rental(Base):
             "landlord_username": self.landlord_username,
             "house_id": self.house_id,
             "currentDate": self.currentDate.strftime("%Y-%m-%d") if self.currentDate else None,
+        }
+
+class ChatSession(Base):
+    __tablename__ = 'chat_session'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey('user_info.id', ondelete='CASCADE'), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), default='新对话')
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 建立与消息表的一对多双向关系（便于直接通过 session.messages 获取所有历史记录）
+    messages: Mapped[List["ChatMessage"]] = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M:%S") if self.updated_at else None,
+        }
+
+class ChatMessage(Base):
+    __tablename__ = 'chat_message'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey('chat_session.id', ondelete='CASCADE'), nullable=False)
+    role: Mapped[str] = mapped_column(Enum('user', 'assistant', name='role_enum'), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    # 关联回会话表
+    session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "role": self.role,
+            "content": self.content,
+            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
         }

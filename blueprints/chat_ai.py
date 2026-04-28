@@ -5,6 +5,8 @@ from models.house_model import HouseInfo
 from exts.db import db
 from utils.response_utils import success_response, error_response, Code
 from decorators.decorators import token_required
+from flask import g
+from models.models import ChatSession, ChatMessage
 
 chat_ai_bp = Blueprint('chat_ai', __name__, url_prefix='/chat-ai')
 my_agent = ReactAgent()
@@ -184,36 +186,102 @@ house_bot = HouseRecommendationBot()
 
 
 @chat_ai_bp.route('/chat', methods=['POST'])
+@token_required  # 必须确保加了这一行
 def chat_with_ai():
     try:
+        # 【安全拦截】检查装饰器是否成功把 user 塞进来了
+        if not hasattr(g, 'user') or not g.user:
+            return error_response(code=Code.UNAUTHORIZED, message="身份校验失败，请重新登录")
+
+        # 【兼容处理】判断 g.user 是数据库对象还是字典 (防止报错)
+        if isinstance(g.user, dict):
+            current_user_id = g.user.get('id')
+        else:
+            current_user_id = getattr(g.user, 'id', None)
+
+        if not current_user_id:
+            return error_response(code=Code.INTERNAL_SERVER_ERROR, message="无法获取当前用户ID")
+
         data = request.get_json()
         user_message = data.get('message', '')
-        chat_history = data.get('history', [])
+        session_id = data.get('session_id')
 
         if not user_message:
             return error_response(code=Code.BAD_REQUEST, message="消息内容不能为空")
 
-        # 格式化历史记录
-        formatted_history = [{"role": msg["role"], "content": msg["content"]} for msg in chat_history]
+        # 1. 如果没有 session_id，创建新会话
+        if not session_id:
+            title = user_message[:15] + "..." if len(user_message) > 15 else user_message
+            new_session = ChatSession(user_id=current_user_id, title=title)
+            db.session.add(new_session)
+            db.session.flush()
+            session_id = new_session.id
 
-        # 3. 使用 my_agent 调用 execute 方法
+        # 2. 将用户的消息存入数据库
+        user_msg = ChatMessage(session_id=session_id, role='user', content=user_message)
+        db.session.add(user_msg)
+        db.session.flush()
+
+        # 3. 让后端自己去查历史记录（只查当前会话的最近10条，防止Token爆炸）
+        history_records = db.session.query(ChatMessage) \
+            .filter(ChatMessage.session_id == session_id) \
+            .order_by(ChatMessage.id.desc()) \
+            .limit(11).all()  # 取11条是因为包含刚才用户发的那条
+
+        history_records.reverse()  # 因为是倒序查的，所以要反转回正序
+
+        # 组装成 LangChain 需要的格式 (刨除最后一条用户刚发的消息，因为 execute 会自动把当前问题加进去)
+        formatted_history = [{"role": msg.role, "content": msg.content} for msg in history_records[:-1]]
+
+        # 4. 呼叫大模型 Agent
         ai_reply = my_agent.execute(user_message, history=formatted_history)
 
+        # 5. 将大模型的回复存入数据库
+        assistant_msg = ChatMessage(session_id=session_id, role='assistant', content=ai_reply)
+        db.session.add(assistant_msg)
+
+        # 6. 触发会话表的 updated_at 更新（方便前端按时间排序聊天列表）
+        session_obj = db.session.query(ChatSession).get(session_id)
+        if session_obj:
+            session_obj.updated_at = db.func.now()
+
+        db.session.commit()  # 统一提交所有操作
+
+        # 7. 返回结果给前端，一定要带上 session_id，让前端知道现在聊的是哪个窗口
         return success_response(
             code=Code.GET_OK,
             data={
                 "reply": ai_reply,
-                "function_called": True
+                "session_id": session_id
             },
             message="对话成功"
         )
 
     except Exception as e:
+        db.session.rollback()
         current_app.logger.error(f"Chat AI error: {e}")
-        return error_response(
-            code=Code.INTERNAL_SERVER_ERROR,
-            message=f"AI对话失败: {str(e)}"
-        )
+        return error_response(code=Code.INTERNAL_SERVER_ERROR, message=f"AI对话失败: {str(e)}")
+
+# ----------------- 2. 获取用户的历史会话列表 -----------------
+@chat_ai_bp.route('/sessions', methods=['GET'])
+@token_required
+def get_sessions():
+    # 只查询属于当前登录用户的会话
+    sessions = db.session.query(ChatSession).filter_by(user_id=g.user.id)\
+        .order_by(ChatSession.updated_at.desc()).all()
+    return success_response(code=Code.GET_OK, data=[s.to_dict() for s in sessions])
+
+
+# ----------------- 3. 获取某个会话的具体聊天记录 -----------------
+@chat_ai_bp.route('/sessions/<int:session_id>/messages', methods=['GET'])
+def get_session_messages(session_id):
+    try:
+        messages = db.session.query(ChatMessage).filter_by(session_id=session_id) \
+            .order_by(ChatMessage.id.asc()).all()
+
+        return success_response(code=Code.GET_OK, data=[m.to_dict() for m in messages])
+    except Exception as e:
+        return error_response(code=Code.INTERNAL_SERVER_ERROR, message=str(e))
 
 @chat_ai_bp.route('/houses/search', methods=['POST'])
 def search_houses():
