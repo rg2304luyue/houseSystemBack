@@ -14,7 +14,10 @@ class BaseModelFactory(ABC):
 
 class ChatModelFactory(BaseModelFactory):
     def generate(self) -> Optional[Embeddings | BaseChatModel]:
-        return ChatTongyi(model=rag_config["chat_model_name"], api_key=Config.DASHSCOPE_API_KEY)
+        return ChatTongyi(
+            model=rag_config["chat_model_name"],
+            api_key=Config.DASHSCOPE_API_KEY
+        )
 
 class EmbeddingsFactory(BaseModelFactory):
     def generate(self) -> Optional[Embeddings | BaseChatModel]:

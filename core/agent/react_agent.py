@@ -4,6 +4,7 @@ react_agent.py - 完整版 ReAct Agent
 """
 
 from langchain.agents import create_agent
+from langchain_core.messages import AIMessage
 from core.agent_model.factor import chat_model
 from core.agent_utils.prompt_loader import load_system_prompt
 # 房源核心工具
@@ -105,7 +106,12 @@ class ReactAgent:
         return latest_message.content if latest_message else "抱歉，暂时无法回答。"
 
     def execute_stream_with_history(self, query: str, history: list = None):
-        """流式执行（供 SSE 接口调用）"""
+        """流式执行（供 SSE 接口调用）
+        只推送最终 AI 回复（不含 tool_calls），跳过中间思考过程：
+        - AIMessage 带 tool_calls → 思考步骤，跳过
+        - ToolMessage → 工具执行结果（JSON），跳过
+        - AIMessage 无 tool_calls → 最终回复，推流
+        """
         if history is None:
             history = []
 
@@ -116,15 +122,26 @@ class ReactAgent:
         try:
             for chunk in self.agent.stream(input_dict, stream_mode="values", context={"report": False}):
                 latest = chunk["messages"][-1]
-                if latest.content:
-                    new_content = latest.content
-                    if new_content.startswith(previous_content):
-                        delta = new_content[len(previous_content):]
-                    else:
-                        delta = new_content
-                    previous_content = new_content
-                    if delta:
-                        yield delta
+
+                # 跳过非 AIMessage（ToolMessage / HumanMessage / SystemMessage）
+                if not isinstance(latest, AIMessage):
+                    continue
+
+                # 跳过含 tool_calls 的思考步骤
+                if getattr(latest, 'tool_calls', None):
+                    continue
+
+                if not latest.content:
+                    continue
+
+                new_content = latest.content
+                if new_content.startswith(previous_content):
+                    delta = new_content[len(previous_content):]
+                else:
+                    delta = new_content
+                previous_content = new_content
+                if delta:
+                    yield delta
         except Exception as e:
             logger.error(f"[ReactAgent] 流式执行出错: {e}")
             yield f"\n\n[系统错误: {str(e)}]"
@@ -132,10 +149,3 @@ class ReactAgent:
     def execute_stream(self, query: str):
         """原有流式方法（向后兼容）"""
         yield from self.execute_stream_with_history(query, history=[])
-
-
-if __name__ == '__main__':
-    agent = ReactAgent()
-    print("=== 测试: 搜索岳麓区房源 ===")
-    result = agent.execute("帮我找一套岳麓区2000元以内的房源")
-    print(result)

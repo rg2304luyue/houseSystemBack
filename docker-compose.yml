@@ -1,19 +1,66 @@
 version: '3.8'
 
 services:
-  # 后端服务
+  # Redis 服务（保持不变，可选加数据卷）
+  redis:
+    image: redis:6.2-alpine
+    container_name: house_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  # MySQL 服务（适配你本地的配置）
+  mysql:
+    image: mysql:8.0.39  # 匹配你本地的版本
+    container_name: house_mysql
+    ports:
+      - "3306:3306"  # 端口映射，如果你本地 MySQL 占了 3306，可以改成 3307:3306
+    environment:
+      # 核心：和你本地 MySQL 配置一致
+      - MYSQL_ROOT_PASSWORD=root  # 你本地的密码是 root
+      - MYSQL_DATABASE=flaskhousesystem  # 你本地的数据库名
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql  # 数据持久化
+    restart: always
+    command: --default-time_zone='+8:00'
+
+  # 后端服务（关键：覆盖环境变量）
   backend:
     build: ./houseSystemBack
+    container_name: house_backend
     ports:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
-    # 如果有数据库或 Redis，可以在这里添加依赖
+      - SECRET_KEY=your_secure_random_key_here  # 生产环境换个复杂的
+      # Redis 连接（Docker 内用服务名 redis）
+      - REDIS_URL=redis://redis:6379/0
+      # MySQL 连接（关键配置）
+      - MYSQL_HOST=mysql  # Docker 网络内用 MySQL 服务名
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root  # 和上面 MySQL 的密码一致
+      - MYSQL_DB=flaskhousesystem  # 和上面的数据库名一致
+    depends_on:
+      - redis
+      - mysql
+    restart: always
 
-  # 前端服务
+  # 前端服务（保持不变）
   frontend:
     build: ./houseSystemFront
+    container_name: house_frontend
     ports:
       - "80:80"
     depends_on:
       - backend
+    restart: always
+
+# 全局数据卷
+volumes:
+  redis_data:
+  mysql_data:

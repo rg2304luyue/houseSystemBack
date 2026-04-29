@@ -289,7 +289,10 @@ def chat_stream():
             .limit(11).all()
         history_records.reverse()
         formatted_history = [{"role": msg.role, "content": msg.content} for msg in history_records[:-1]]
-        db.session.flush()
+
+        # 必须在进入流式生成器前 commit，确保 ChatSession 和用户消息已写入数据库
+        # 否则 generate() 内部的新 db.session 会因外键约束失败
+        db.session.commit()
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Stream pre-process error: {e}")
