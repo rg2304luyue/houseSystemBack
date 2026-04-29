@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build: ./houseSystemBack
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+    # 如果有数据库或 Redis，可以在这里添加依赖
+
+  # 前端服务
+  frontend:
+    build: ./houseSystemFront
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
