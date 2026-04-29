@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from config import Config
 from exts.db import db
@@ -91,6 +92,26 @@ def index():
         print(f"数据库连接或查询失败: {e}")
     return "OK~ Backend is running."
 
+def _wait_for_db(retries=30, delay=2):
+    """等待 MySQL 就绪（Docker 环境下 MySQL 启动较慢）"""
+    import time
+    from sqlalchemy.exc import OperationalError
+    for i in range(retries):
+        try:
+            with app.app_context():
+                db.session.execute(db.text('SELECT 1'))
+            app.logger.info("数据库连接成功")
+            return
+        except OperationalError:
+            app.logger.warning(f"数据库未就绪，重试 {i + 1}/{retries}...")
+            time.sleep(delay)
+    raise RuntimeError("数据库连接失败，已超过最大重试次数")
+
+
 if __name__ == "__main__":
-    # app.run(debug=True)
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    if not debug_mode:
+        _wait_for_db()
+
+    socketio.run(app, debug=debug_mode, allow_unsafe_werkzeug=debug_mode,
+                 host='0.0.0.0', port=5000)

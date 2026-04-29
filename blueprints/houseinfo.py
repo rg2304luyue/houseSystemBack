@@ -54,7 +54,7 @@ def get_hotlists():
 
     # 将查询结果存入 Redis 缓存
     RedisCache.set_cache(cache_key, data)
-    return success_response( [a.to_dict() for a in house_hot_List])
+    return success_response(data)
 
 #1.3最新房源
 @house_info_bp.route('/newLists', methods=['GET'])
@@ -82,7 +82,7 @@ def get_newlists():
 
     # 将查询结果存入缓存
     RedisCache.set_cache(cache_key, data)
-    return success_response([a.to_dict() for a in house_new_list])
+    return success_response(data)
 
 # 1. 新增房源信息 (对应房东发布房源)
 @house_info_bp.route('/', methods=['POST'])
@@ -128,6 +128,8 @@ def add_house_info():
         session.commit()
         session.refresh(new_house)  # 获取自动生成的ID等
         RedisCache.delete_cache('house_new_lists')
+        RedisCache.delete_cache('house_hot_lists')
+        RedisCache.delete_by_prefix('all_house_infos:')
 
         return success_response(data=new_house.to_dict(), message="房源信息添加成功", code=Code.SAVE_OK)
     except SQLAlchemyError as e:
@@ -395,6 +397,7 @@ def update_house_info(house_id):
         # 建议同时清理列表缓存，因为列表中的价格等信息也已过期
         RedisCache.delete_cache('house_hot_lists')
         RedisCache.delete_cache('house_new_lists')
+        RedisCache.delete_by_prefix('all_house_infos:')
 
         return success_response(data=house.to_dict(), message="房源信息更新成功", code=Code.UPDATE_OK)
     except SQLAlchemyError as e:
@@ -426,10 +429,12 @@ def delete_house_info(house_id):
         session.commit()
 
         # 删除相关缓存,保证一致性
-        cache_key = f'house_info:{house_id}'
-        RedisCache.delete_cache(cache_key)
+        RedisCache.delete_cache(f'house_info:{house_id}')
+        RedisCache.delete_cache('house_hot_lists')
+        RedisCache.delete_cache('house_new_lists')
+        RedisCache.delete_by_prefix('all_house_infos:')
 
-        return success_response(message="房源信息删除成功", code=Code.DELETE_OK)  # 或者返回204, data=None
+        return success_response(message="房源信息删除成功", code=Code.DELETE_OK)
     except SQLAlchemyError as e:
         session.rollback()
         current_app.logger.error(f"删除房源 {house_id} 失败: {e}")

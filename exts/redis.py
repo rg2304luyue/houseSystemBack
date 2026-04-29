@@ -31,3 +31,14 @@ class RedisCache:
     def exists(key):
         """检查缓存是否存在"""
         return redis_store.exists(key)
+
+    @staticmethod
+    def delete_by_prefix(prefix):
+        """删除所有匹配前缀的缓存键（使用 SCAN，非阻塞）"""
+        cursor = 0
+        while True:
+            cursor, keys = redis_store.scan(cursor, match=f'{prefix}*', count=100)
+            if keys:
+                redis_store.delete(*keys)
+            if cursor == 0:
+                break

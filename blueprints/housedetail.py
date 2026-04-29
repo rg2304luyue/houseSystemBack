@@ -72,7 +72,7 @@ def add_house_detail():
         session.refresh(new_detail)
 
         # 清除相关缓存
-        cache_key = f'house_info:{house_info_id}'
+        cache_key = f'house_detail:{house_info_id}'
         RedisCache.delete_cache(cache_key)
 
         return success_response(data=new_detail.to_dict(), message="房源详细信息添加成功", code=Code.SAVE_OK)
@@ -101,7 +101,7 @@ def get_house_detail_by_house_id(house_info_id):
     # session = db.session
     try:
         # 构建缓存键
-        cache_key = f'house_info:{house_info_id}'
+        cache_key = f'house_detail:{house_info_id}'
 
         # 检查缓存
         cached_data = RedisCache.get_cache(cache_key)
