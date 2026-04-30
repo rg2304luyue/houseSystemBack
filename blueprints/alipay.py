@@ -68,8 +68,8 @@ def return_result():
     verified = client.verify(data, signature)
     status = "success" if verified else "failure"
 
-    # 把状态拼到前端结果页，前端可据此展示支付结果
-    redirect_url = f"{Alipay.RETURN_URL}?status={status}"
+    # 重定向到前端首页（用根路径避免 SPA history fallback 问题），携带支付状态
+    redirect_url = f"{Alipay.FRONTEND_URL}/?payment={status}"
     return redirect(redirect_url, code=302)
 
 @alipay_bp.get("/verify_return")

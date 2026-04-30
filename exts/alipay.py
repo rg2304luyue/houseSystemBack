@@ -38,8 +38,9 @@ class Alipay:
     ALIPAY_PUBLIC_KEY = ALIPAY_PUBLIC_KEY1
     APP_PRIVATE_KEY = APP_PRIVATE_KEY1
     GATEWAY = 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
-    RETURN_URL = 'http://localhost:4173/alipay/payment-result'  # 前端地址
-    NOTIFY_URL = 'http://localhost:5000/api/alipay/notify'  # Flask回调接口
+    RETURN_URL = 'http://localhost:5000/api/alipay/return'    # 支付宝同步回跳（后端验证）
+    NOTIFY_URL = 'http://localhost:5000/api/alipay/notify'     # 支付宝异步回调（后端）
+    FRONTEND_URL = 'http://localhost:4399'                     # 前端地址
     CALLBACK_URL = 'http://localhost:5000/api/alipay/oauth_callback'
 
 # print(APP_PRIVATE_KEY1+"\n"+ALIPAY_PUBLIC_KEY1)
