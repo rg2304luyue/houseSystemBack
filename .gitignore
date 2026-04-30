@@ -3,3 +3,5 @@ flask_env/
 __pycache__/
 */__pycache__/
 config.py
+exts/app_private_key.txt
+exts/alipay_public_key.txt
