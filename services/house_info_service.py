@@ -1,6 +1,6 @@
 from models.house_model import HouseInfo
 from exts.db import db
-from models.models import Rental
+from models.rental_model import Rental
 
 def get_housenum():
     return db.session.query(HouseInfo).count()

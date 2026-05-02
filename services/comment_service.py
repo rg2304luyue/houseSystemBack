@@ -1,4 +1,4 @@
-from models.models import Comment
+from models.comment_model import Comment
 from exts.db import db
 from datetime import datetime
 

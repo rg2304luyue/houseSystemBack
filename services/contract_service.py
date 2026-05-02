@@ -1,4 +1,4 @@
-from models.models import Contract
+from models.contract_model import Contract
 from exts.db import db
 from datetime import datetime
 

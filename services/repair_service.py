@@ -1,4 +1,4 @@
-from models.models import Repair_Complaint
+from models.repair_complaint_model import Repair_Complaint
 from models.user_model import UserModel
 from exts.db import db
 from datetime import datetime

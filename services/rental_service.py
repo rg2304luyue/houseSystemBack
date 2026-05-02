@@ -1,5 +1,5 @@
 from exts.db import db
-from models.models import Rental
+from models.rental_model import Rental
 from datetime import datetime
 
 def get_rental_by_tenant_username(tenant_username):

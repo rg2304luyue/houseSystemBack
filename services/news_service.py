@@ -1,4 +1,4 @@
-from models.models import News
+from models.news_model import News
 from exts.db import db
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime

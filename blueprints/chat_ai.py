@@ -6,7 +6,7 @@ from exts.db import db
 from utils.response_utils import success_response, error_response, Code
 from decorators.decorators import token_required
 from flask import g
-from models.models import ChatSession, ChatMessage
+from models.chat_model import ChatSession, ChatMessage
 
 chat_ai_bp = Blueprint('chat_ai', __name__, url_prefix='/chat-ai')
 my_agent = ReactAgent()

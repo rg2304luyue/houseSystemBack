@@ -1,4 +1,4 @@
-from models.models import Message
+from models.message_model import Message
 from exts.db import db
 from datetime import datetime
 from sqlalchemy import or_, and_

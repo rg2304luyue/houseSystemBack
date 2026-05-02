@@ -1,4 +1,4 @@
-from models.models import Channel
+from models.channel_model import Channel
 from models.user_model import UserModel
 from exts.db import db
 from sqlalchemy import or_, and_, select
