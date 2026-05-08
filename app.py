@@ -49,8 +49,12 @@ app = Flask(__name__)
 app.config.from_object(Config)
 db.init_app(app)
 cors.init_app(app, supports_credentials=True)
-# 初始化 Redis 实例
-redis_store.init_app(app)
+# 初始化 Redis 实例（Redis 不可用时不阻塞应用启动）
+try:
+    redis_store.init_app(app)
+    app.logger.info("Redis 初始化成功")
+except Exception as e:
+    app.logger.warning(f"Redis 初始化失败，将在无缓存模式下运行: {e}")
 
 setup_logging(app) # 调用日志配置函数
 app.register_blueprint(house_info_bp)

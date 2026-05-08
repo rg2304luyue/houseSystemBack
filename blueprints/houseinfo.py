@@ -166,19 +166,32 @@ def get_all_house_infos():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)  # 每页数量，前端可控
 
-        # 构建缓存键
-        cache_key = f'all_house_infos:{page}:{per_page}'
+        # 构建缓存键（不含 page，缓存完整查询结果，所有分页共用同一缓存）
+        cache_key = 'all_house_infos'
         for key in sorted(request.args.keys()):
             if key not in ['page', 'per_page']:
                 cache_key += f':{key}:{request.args[key]}'
 
-        # 检查缓存
+        # 检查缓存（返回完整结果集，由代码分页）
         cached_data = RedisCache.get_cache(cache_key)
         if cached_data:
-            return success_response(cached_data, message="查询成功", code=Code.GET_OK)
+            all_items = cached_data['items']
+            total = cached_data['total']
+            start = (page - 1) * per_page
+            end = start + per_page
+            paged_items = all_items[start:end]
+
+            response_data = {
+                "items": paged_items,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "pages": (total + per_page - 1) // per_page
+            }
+            return success_response(data=response_data, message="查询成功", code=Code.GET_OK)
 
         # 不显示，证明返回了缓存中的数据
-        print("houseinfo获取单页所有房源无缓存")
+        print("houseinfo获取所有房源无缓存")
 
         # 构建查询
         query = session.query(HouseInfo)
@@ -195,27 +208,17 @@ def get_all_house_infos():
             query = query.filter(HouseInfo.block.ilike(f"%{request.args['block']}%"))
 
         if 'community' in request.args and request.args['community']:  # 主搜索框
-            # 如果希望 community 搜索也覆盖区域和版块，需要更复杂的 OR 逻辑
             query = query.filter(HouseInfo.community.ilike(f"%{request.args['community']}%"))
 
         # 按户型搜索 (改进以支持逗号分隔的多选 "OR" 逻辑)
         if 'rooms' in request.args and request.args['rooms']:
-            # room_types = [r.strip() for r in request.args['rooms'].split(',') if r.strip()]
-            # if room_types:
-            #     room_conditions = [HouseInfo.rooms.ilike(f"%{rt}%") for rt in room_types]
-            #     query = query.filter(or_(*room_conditions))
-            # 前端传来的可能是 "一居,两居,四居+" 这样的字符串
             raw_room_filters = [r.strip() for r in request.args['rooms'].split(',') if r.strip()]
 
             if raw_room_filters:
-                # 用于收集所有有效的户型查询条件
-                # 例如，如果用户选了 "一居" 和 "三居"，这里会包含两个查询条件
-                # 这两个条件最终会用 OR 连接起来
                 individual_room_type_conditions = []
 
                 for room_filter_text in raw_room_filters:
                     if room_filter_text == '一居':
-                        # 精确匹配以 "1室" 开头的房源
                         individual_room_type_conditions.append(HouseInfo.rooms.ilike("1室%"))
                     elif room_filter_text == '两居':
                         individual_room_type_conditions.append(HouseInfo.rooms.ilike("2室%"))
@@ -224,30 +227,16 @@ def get_all_house_infos():
                     elif room_filter_text == '四居':
                         individual_room_type_conditions.append(HouseInfo.rooms.ilike("4室%"))
                     elif room_filter_text == '四居+':
-                        # "四居+" 表示4室及以上
-                        # 我们需要构建一个 OR 条件列表来匹配 "4室", "5室", ..., "9室" (或你认为合理的上限)
-                        # 假设房源不太可能超过9室，如果超过，可以调整上限
-                        # 也可以考虑更高级的查询方式，如正则表达式，但 ilike 更通用
                         plus_conditions = []
-                        for i in range(4, 10):  # 匹配 4室, 5室, 6室, 7室, 8室, 9室
+                        for i in range(4, 10):
                             plus_conditions.append(HouseInfo.rooms.ilike(f"{i}室%"))
-
-                        if plus_conditions:  # 如果生成了条件 (这里总是会的)
-                            # 将 "4室" OR "5室" OR ... 作为一个整体条件添加到列表中
+                        if plus_conditions:
                             individual_room_type_conditions.append(or_(*plus_conditions))
-                    # else:
-                    # 如果前端可能发送数字 (如 "1", "2"), 也可以在这里处理
-                    # elif room_filter_text.isdigit():
-                    #     individual_room_type_conditions.append(HouseInfo.rooms.ilike(f"{room_filter_text}室%"))
-                    # 当前端固定发送中文描述，此else分支可以省略
 
                 if individual_room_type_conditions:
-                    # 将所有选中的户型条件用 OR 连接起来
-                    # 例如 (HouseInfo.rooms.ilike("1室%")) OR (HouseInfo.rooms.ilike("3室%"))
                     query = query.filter(or_(*individual_room_type_conditions))
 
-        # 按朝向搜索 (新增，并支持逗号分隔的多选 "OR" 逻辑)
-        # 假设 HouseInfo 模型中有 'direction' 字段存储朝向信息
+        # 按朝向搜索
         if 'orientation' in request.args and request.args['orientation']:
             orientations_to_filter = [o.strip() for o in request.args['orientation'].split(',') if o.strip()]
             if orientations_to_filter:
@@ -259,25 +248,25 @@ def get_all_house_infos():
             try:
                 query = query.filter(HouseInfo.price >= int(request.args['min_price']))
             except ValueError:
-                pass  # 或者返回错误
+                pass
         if 'max_price' in request.args:
             try:
                 query = query.filter(HouseInfo.price <= int(request.args['max_price']))
             except ValueError:
-                pass  # 或者返回错误
+                pass
 
         # 按租赁方式
-        if 'rent_type' in request.args and request.args['rent_type']:  # Ensure not empty string
+        if 'rent_type' in request.args and request.args['rent_type']:
             query = query.filter(HouseInfo.rent_type == request.args['rent_type'])
 
-        # 按是否近地铁 (假设 1=是, 0=否)
-        if 'subway' in request.args:  # 后端接收的是字符串 '0' 或 '1'
+        # 按是否近地铁
+        if 'subway' in request.args:
             try:
                 subway_val = int(request.args['subway'])
                 if subway_val in [0, 1]:
                     query = query.filter(HouseInfo.subway == subway_val)
             except ValueError:
-                pass  # 或者返回错误
+                pass
 
         # 按装修情况
         if 'decoration' in request.args and request.args['decoration']:
@@ -292,24 +281,28 @@ def get_all_house_infos():
             except ValueError:
                 pass
 
-        # 排序 (例如按发布时间降序)
+        # 排序
         query = query.order_by(HouseInfo.publish_time.desc(), HouseInfo.id.desc())
 
-        # 分页
-        total_count = query.count()  # 获取过滤后的总数
-        paginated_houses = query.paginate(page=page, per_page=per_page, error_out=False)
-        house_list = [house.to_dict() for house in paginated_houses.items]
+        # 查询所有匹配记录（不分页），缓存完整结果供多分页共用
+        all_items = [house.to_dict() for house in query.all()]
+        total = len(all_items)
+
+        # 将完整结果集存入缓存（不分页）
+        RedisCache.set_cache(cache_key, {"items": all_items, "total": total})
+
+        # 从完整结果集中分页
+        start = (page - 1) * per_page
+        end = start + per_page
+        paged_items = all_items[start:end]
 
         response_data = {
-            "items": house_list,
-            "total": total_count,
+            "items": paged_items,
+            "total": total,
             "page": page,
             "per_page": per_page,
-            "pages": paginated_houses.pages
+            "pages": (total + per_page - 1) // per_page
         }
-
-        # 将查询结果存入缓存
-        RedisCache.set_cache(cache_key, response_data)
 
         if not house_list and page == 1:  # 如果第一页就没有数据
             return success_response(data=response_data, message="暂无房源信息", code=Code.GET_OK)  # 仍然是成功，只是数据为空

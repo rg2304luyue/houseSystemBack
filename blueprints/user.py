@@ -9,7 +9,7 @@ from exts import db
 from utils.response_utils import success_response, error_response, Code
 from decorators.decorators import token_required
 import random
-from exts.redis import redis_store
+from exts.redis import redis_store, is_redis_available
 from blueprints.celery_bp import send_verification_email, send_verification_email_up
 import os
 from datetime import datetime, timedelta
@@ -270,6 +270,10 @@ def password_reset():
     if newuser is None:
         return error_response(code=Code.GET_ERR, message="不存在该用户")
 
+    if not is_redis_available():
+        return error_response(code=Code.INTERNAL_SERVER_ERROR,
+                              message="验证码服务暂不可用，请稍后重试")
+
     verification_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
     redis_key = f'verification_code:{email}'
     redis_store.set(redis_key, verification_code, ex=120)
@@ -296,6 +300,10 @@ def tolanlord():
     newuser = get_user_by_email(email)
     if newuser is None:
         return error_response(code=Code.GET_ERR, message="不存在该用户")
+
+    if not is_redis_available():
+        return error_response(code=Code.INTERNAL_SERVER_ERROR,
+                              message="验证码服务暂不可用，请稍后重试")
 
     verification_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
     redis_key = f'verification_code:{email}'
