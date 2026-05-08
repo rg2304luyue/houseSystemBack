@@ -304,7 +304,7 @@ def get_all_house_infos():
             "pages": (total + per_page - 1) // per_page
         }
 
-        if not house_list and page == 1:  # 如果第一页就没有数据
+        if not paged_items and page == 1:  # 如果第一页就没有数据
             return success_response(data=response_data, message="暂无房源信息", code=Code.GET_OK)  # 仍然是成功，只是数据为空
 
         return success_response(data=response_data, message="查询成功", code=Code.GET_OK)

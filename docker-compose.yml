@@ -1,15 +1,13 @@
 # ============================================================
 # 链居 - Docker Compose 一键编排
-# 启动: docker-compose up -d --build
-# 停止: docker-compose down
+# 启动: docker compose up -d --build
+# 停止: docker compose down
 # ============================================================
 
-version: '3.8'
-
 services:
-  # ---- Redis 缓存/消息队列 ----
+  # ---- Redis 缓存/消息队列（可选，不启动也能运行）----
   redis:
-    image: redis:6.2-alpine
+    image: redis:7-alpine
     container_name: house_redis
     ports:
       - "6379:6379"
@@ -21,16 +19,18 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
+    profiles:
+      - with-redis
 
   # ---- MySQL 数据库 ----
   mysql:
-    image: mysql:8.0.39
+    image: mysql:8.0
     container_name: house_mysql
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: flaskhousesystem
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-flaskhousesystem}
       MYSQL_CHARACTER_SET_SERVER: utf8mb4
       MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
     volumes:
@@ -43,7 +43,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ---- 后端 Flask 服务 ----
+  # ---- 后端 Flask 服务 (Gunicorn) ----
   backend:
     build: .
     container_name: house_backend
@@ -51,18 +51,17 @@ services:
       - "5000:5000"
     environment:
       FLASK_ENV: production
-      SECRET_KEY: your_secure_random_key_here
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/1
-      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
-      MYSQL_DB: flaskhousesystem
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
     depends_on:
-      redis:
-        condition: service_healthy
       mysql:
         condition: service_healthy
     restart: always

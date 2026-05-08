@@ -1,6 +1,6 @@
 # ============================================================
 # 链居 - 后端 Dockerfile
-# Python Flask + SQLAlchemy + Celery
+# Python Flask + SQLAlchemy + Celery + Gunicorn
 # ============================================================
 
 FROM python:3.13-slim
@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     libffi-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 利用 Docker 缓存：先复制依赖文件
@@ -28,8 +29,9 @@ COPY . .
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/')" || exit 1
+  CMD curl -f http://localhost:5000/ || exit 1
 
 EXPOSE 5000
 
-CMD ["python", "app.py"]
+# 生产环境使用 Gunicorn（可通过环境变量调整 workers 数量）
+CMD gunicorn -w ${GUNICORN_WORKERS:-4} -b 0.0.0.0:5000 --timeout 120 app:app
