@@ -9,11 +9,11 @@
 | Web 框架     | Flask                                    |
 | ORM          | SQLAlchemy 2.0 + Flask-SQLAlchemy        |
 | 数据库       | MySQL 8.0                                |
-| 缓存/消息队列 | Redis 6.0+                               |
+| 缓存 / 消息队列 | Redis 7                                |
 | 异步任务     | Celery                                   |
 | 实时通讯     | Flask-SocketIO                           |
 | 认证         | JWT (PyJWT HS256)                        |
-| AI/LLM       | 通义千问 DashScope + ReAct Agent         |
+| AI/LLM       | 通义千问 DashScope + ReAct Agent + RAG   |
 | 支付         | 支付宝沙箱 (alipay-sdk-python)            |
 | 邮件         | QQ邮箱 SMTP                              |
 | 对象存储     | 阿里云 OSS                               |
@@ -25,13 +25,14 @@
 ```
 houseSystemBack-Lu_New_back/
 ├── app.py                       # Flask 应用入口，蓝图注册，SocketIO / Celery 初始化
-├── config.py                    # 集中配置（DB / Redis / Celery / OAuth / OSS / AI）
-├── requirements.txt             # Python 依赖
-├── .env.example                 # 环境变量模板
+├── config.py                    # 配置类（从环境变量读取，无硬编码密钥，git 可追踪）
+├── requirements.txt             # Python 依赖（249 个，已清理无用包）
+├── .env.example                 # 环境变量模板（部署时复制为 .env 填入真实值）
+├── .env                         # 本地密钥（已在 .gitignore 中排除）
 ├── Dockerfile                   # Docker 镜像构建
-├── docker-compose.yml           # 一键编排（backend + frontend + MySQL + Redis）
+├── docker-compose.yml           # 一键编排（backend + celery + frontend + MySQL + Redis）
 │
-├── blueprints/                  # 路由蓝图（Controller 层，16 个模块）
+├── blueprints/                  # 路由蓝图（16 个模块）
 │   ├── user.py                  # /user        — 注册/登录/资料/头像/密码重置
 │   ├── houseinfo.py             # /houseinfo   — 房源 CRUD + 搜索筛选 + 统计图表
 │   ├── housedetail.py           # /housedetail — 房源详情（图片/设施/地图坐标）
@@ -47,51 +48,22 @@ houseSystemBack-Lu_New_back/
 │   ├── alipay.py                # /api/alipay  — 支付宝支付
 │   ├── github.py                # /github      — GitHub OAuth 登录
 │   ├── email_auth.py            # /email-auth  — 邮箱验证码登录
-│   └── celery_bp.py             # Celery 异步任务
+│   └── celery_bp.py             # Celery 异步任务（邮件发送、GitHub 数据获取）
 │
 ├── services/                    # 业务逻辑层（12 个服务）
-│   ├── user_service.py
-│   ├── house_info_service.py
-│   ├── housedetil_service.py
-│   ├── comment_service.py
-│   ├── contract_service.py
-│   ├── appointment_service.py
-│   ├── repair_service.py
-│   ├── message_service.py
-│   ├── channel_service.py
-│   ├── news_service.py
-│   └── rental_service.py
-│
-├── models/                      # 数据模型层（全部使用 db.Model + Mapped 语法）
-│   ├── user_model.py            # UserModel
-│   ├── house_model.py           # HouseInfo
-│   ├── house_detail_model.py    # HouseDetail
-│   ├── appointment_model.py     # AppointmentModel
-│   ├── comment_model.py         # Comment
-│   ├── contract_model.py        # Contract
-│   ├── repair_complaint_model.py # Repair_Complaint
-│   ├── message_model.py         # Message
-│   ├── channel_model.py         # Channel
-│   ├── news_model.py            # News
-│   ├── rental_model.py          # Rental
-│   ├── chat_model.py            # ChatSession + ChatMessage
-│   └── log_model.py             # LogEntry
+├── models/                      # 数据模型层（13 个模型，db.Model + Mapped 语法）
 │
 ├── core/                        # AI 核心模块
-│   ├── agent/                   # ReAct Agent + 工具集
-│   ├── agent_config/            # Agent 配置
-│   ├── agent_model/             # Agent 数据模型
-│   ├── agent_utils/             # Agent 工具函数
-│   ├── core/                    # 核心编排
+│   ├── agent/                   # ReAct Agent + 工具集（搜索/天气/通勤/市场）
+│   ├── rag/                     # RAG 检索增强（ChromaDB 向量存储）
 │   ├── prompts/                 # Prompt 模板
-│   ├── rag/                     # RAG 检索增强
-│   └── data/                    # 静态数据
+│   └── agent_config/            # Agent / RAG / ChromaDB 配置
 │
 ├── exts/                        # 扩展初始化
 │   ├── db.py                    # SQLAlchemy 实例
 │   ├── cors.py                  # CORS 配置
 │   ├── redis.py                 # Redis 连接 + 缓存工具
-│   ├── celery.py                # Celery 实例 + 工厂方法
+│   ├── celery.py                # Celery 实例 + 平台自适应（Windows solo / Linux prefork）
 │   ├── alipay.py                # 支付宝常量 + 密钥加载
 │   ├── alipay_client.py         # 支付宝 SDK 封装
 │   └── log_handlers.py          # 数据库日志处理器
@@ -111,7 +83,7 @@ houseSystemBack-Lu_New_back/
 
 - Python 3.10+
 - MySQL 8.0+
-- Redis 6.0+
+- Redis 7.0+
 
 ### 1. 环境配置
 
@@ -120,18 +92,18 @@ houseSystemBack-Lu_New_back/
 cp .env.example .env
 
 # 编辑 .env 填入实际值
-# 必填: MYSQL_PASSWORD, SECRET_KEY
+# 必填: MYSQL_PASSWORD, SECRET_KEY, QQ_SMTP_EMAIL, QQ_SMTP_AUTH_CODE
 # 按需: DASHSCOPE_API_KEY, GITHUB_CLIENT_ID 等
 ```
+
+> `python-dotenv` 会自动加载 `.env` 文件。Docker 部署时 docker-compose 读取 `.env` 注入环境变量。
 
 ### 2. 安装依赖
 
 ```bash
 python -m venv flask_env
-# Windows
-flask_env\Scripts\activate
-# Linux/Mac
-source flask_env/bin/activate
+# Windows: flask_env\Scripts\activate
+# Linux/Mac: source flask_env/bin/activate
 
 pip install -r requirements.txt
 ```
@@ -139,32 +111,23 @@ pip install -r requirements.txt
 ### 3. 初始化数据库
 
 ```bash
-# 创建数据库
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS flaskhousesystem DEFAULT CHARSET utf8mb4;"
-
-# 导入初始数据（如有 SQL 文件）
 mysql -u root -p flaskhousesystem < flaskhousesystem.sql
 ```
 
-### 4. 启动 Redis
+### 4. 启动服务
 
 ```bash
-# Docker 方式
-docker run -d -p 6379:6379 redis:6.2-alpine
-
-# 或本地
+# 终端1: Redis
 redis-server
-```
 
-### 5. 启动 Celery（可选，异步邮件）
+# 终端2: Celery Worker（邮件异步发送）
+# Windows:
+celery -A app:celery worker --loglevel=info --pool=solo
+# Linux/Docker:
+celery -A app:celery worker --loglevel=info --concurrency=4
 
-```bash
-celery -A app.celery worker --loglevel=info -P threads
-```
-
-### 6. 启动服务
-
-```bash
+# 终端3: Flask
 python app.py
 # 服务启动在 http://localhost:5000
 ```
@@ -172,16 +135,15 @@ python app.py
 ## Docker 一键部署
 
 ```bash
-# 在 houseSystemBack-Lu_New_back 目录下
-docker-compose up -d --build
+docker compose up -d --build
 
-# 同时启动：MySQL + Redis + 后端(5000) + 前端(80)
+# 同时启动：MySQL + Redis + Flask(5000) + Celery Worker + 前端 Nginx(80)
 
 # 查看日志
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # 停止
-docker-compose down
+docker compose down
 ```
 
 ### 服务架构
@@ -195,15 +157,19 @@ docker-compose down
                     │   Nginx     │  ← 前端容器
                     │  (Vue SPA)  │
                     └──────┬──────┘
-                           │ /api/* /user/* ...
+                           │ API 代理
                     ┌──────▼──────┐
                     │   Flask     │  ← 后端容器 :5000
-                    │  (Python)   │
-                    └──┬────┬──┬──┘
-                       │    │  │
-              ┌────────▼┐ ┌─▼──▼─┐
-              │  MySQL  │ │ Redis│
-              └─────────┘ └──────┘
+                    │  (Gunicorn) │
+                    └──┬──┬──┬──┬─┘
+                       │  │  │  │
+              ┌────────▼┐ │  │  ┌──────────────┐
+              │  MySQL  │ │  │  │ Celery Worker│ ← 异步邮件
+              └─────────┘ │  │  └──────┬───────┘
+                          │  │         │
+              ┌───────────▼──▼──▼─────▼┐
+              │        Redis           │ ← 缓存 + 消息队列
+              └────────────────────────┘
 ```
 
 ## API 概览
@@ -245,17 +211,6 @@ docker-compose down
 - 需认证的接口携带请求头: `Authorization: Bearer <token>`
 - Socket.IO 连接需先发送 `authenticate` 事件
 
-### AI 流式对话示例
-
-```bash
-curl -X POST http://localhost:5000/chat-ai/chat/stream \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "帮我推荐岳麓区2000元以内的两室一厅", "session_id": null}'
-```
-
-响应为 SSE 流：`data: {"type": "chunk", "content": "..."}` → `data: {"type": "done", "session_id": 42}`
-
 ### 支付流程
 
 ```
@@ -266,26 +221,32 @@ curl -X POST http://localhost:5000/chat-ai/chat/stream \
 
 ## 环境变量
 
-| 变量名                      | 说明                      | 必填 |
-| --------------------------- | ------------------------- | ---- |
-| `MYSQL_USER`                | 数据库用户名               | 否   |
-| `MYSQL_PASSWORD`            | 数据库密码                 | 是   |
-| `MYSQL_HOST`                | 数据库主机                 | 否   |
-| `MYSQL_PORT`                | 数据库端口                 | 否   |
-| `MYSQL_DB`                  | 数据库名称                 | 否   |
-| `SECRET_KEY`                | Flask/JWT 密钥            | 是   |
-| `REDIS_URL`                 | Redis 连接地址             | 否   |
-| `DASHSCOPE_API_KEY`         | 通义千问 API Key           | 按需 |
-| `GITHUB_CLIENT_ID`          | GitHub OAuth Client ID    | 按需 |
-| `GITHUB_CLIENT_SECRET`      | GitHub OAuth Secret       | 按需 |
-| `GITHUB_CALLBACK_URL`       | GitHub OAuth 回调地址      | 按需 |
-| `OSS_ACCESS_KEY_ID`         | 阿里云 OSS AccessKey      | 按需 |
-| `OSS_ACCESS_KEY_SECRET`     | 阿里云 OSS Secret         | 按需 |
-| `GAODE_WEATHER_KEY`         | 高德地图 API Key           | 按需 |
-| `GAODE_MAP_KEY`             | 高德地图 Key               | 按需 |
-| `GAODE_MAP_SAFE_KEY`        | 高德地图安全 Key           | 按需 |
-| `SMTP_SENDER_EMAIL`         | QQ邮箱发件人地址           | 按需 |
-| `SMTP_AUTH_CODE`            | QQ邮箱 SMTP 授权码         | 按需 |
+| 变量名               | 说明                      | 必填 |
+| -------------------- | ------------------------- | ---- |
+| `MYSQL_USER`         | 数据库用户名               | 否   |
+| `MYSQL_PASSWORD`     | 数据库密码                 | 是   |
+| `MYSQL_HOST`         | 数据库主机                 | 否   |
+| `MYSQL_PORT`         | 数据库端口                 | 否   |
+| `MYSQL_DB`           | 数据库名称                 | 否   |
+| `SECRET_KEY`         | Flask/JWT 密钥            | 是   |
+| `REDIS_URL`          | Redis 连接地址             | 否   |
+| `QQ_SMTP_EMAIL`      | QQ邮箱发件人地址           | 是   |
+| `QQ_SMTP_AUTH_CODE`  | QQ邮箱 SMTP 授权码         | 是   |
+| `DASHSCOPE_API_KEY`  | 通义千问 API Key           | 按需 |
+| `GAODE_WEATHER_KEY`  | 高德天气 API Key           | 按需 |
+| `GAODE_MAP_KEY`      | 高德地图 Key               | 按需 |
+| `GAODE_MAP_SAFE_KEY` | 高德地图安全 Key           | 按需 |
+| `GITHUB_CLIENT_ID`   | GitHub OAuth Client ID     | 按需 |
+| `GITHUB_CLIENT_SECRET`| GitHub OAuth Secret       | 按需 |
+| `GITHUB_CALLBACK_URL` | GitHub OAuth 回调地址     | 按需 |
+| `OSS_ACCESS_KEY_ID`  | 阿里云 OSS AccessKey       | 按需 |
+| `OSS_ACCESS_KEY_SECRET`| 阿里云 OSS Secret        | 按需 |
 
 > 支付宝密钥通过 `exts/` 目录下的 `app_private_key.txt` 和 `alipay_public_key.txt` 文件管理（已在 .gitignore 中排除）。
-> 沙箱环境需在支付宝开放平台启用"公钥模式"并上传公钥。
+
+## 配置管理
+
+- **`config.py`** — 定义 `Config` 类，所有值从环境变量读取，默认值为空字符串或安全占位符。**可在 git 中追踪。**
+- **`.env`** — 本地密钥文件，被 `.gitignore` 排除，部署时手动创建。
+- **`.env.example`** — 模板文件，包含所有需要的变量名。
+- **Docker** — docker-compose 自动读取 `.env` 注入容器环境变量。
