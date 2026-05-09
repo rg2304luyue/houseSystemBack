@@ -5,3 +5,11 @@ __pycache__/
 *.md
 .idea/
 *.rdb
+.env
+.env.*
+Dockerfile
+docker-compose.yml
+.dockerignore
+check_keys.py
+images/
+dump.rdb

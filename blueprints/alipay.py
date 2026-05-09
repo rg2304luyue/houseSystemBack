@@ -30,10 +30,11 @@ def pay():
             total_amount=total_amount,
             subject=subject
         )
+        current_app.logger.info(f"[Alipay] Pay URL generated: {pay_url}")
         return success_response(code=200, data={"pay_url": pay_url}, message="获取成功")
     except Exception as e:
-        current_app.logger.exception(e)
-        return error_response(code=500, message="生成支付链接失败")
+        current_app.logger.exception(f"[Alipay] Failed: out_trade_no={out_trade_no}, amount={total_amount}")
+        return error_response(code=500, message=f"生成支付链接失败: {e}")
 
 
 @alipay_bp.post("/notify")

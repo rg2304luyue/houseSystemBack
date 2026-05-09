@@ -5,7 +5,7 @@
 # ============================================================
 
 services:
-  # ---- Redis 缓存/消息队列（可选，不启动也能运行）----
+  # ---- Redis 缓存 + Celery 消息队列 ----
   redis:
     image: redis:7-alpine
     container_name: house_redis
@@ -19,8 +19,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    profiles:
-      - with-redis
 
   # ---- MySQL 数据库 ----
   mysql:
@@ -61,7 +59,36 @@ services:
       MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      QQ_SMTP_EMAIL: ${QQ_SMTP_EMAIL}
+      QQ_SMTP_AUTH_CODE: ${QQ_SMTP_AUTH_CODE}
     depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+
+  # ---- Celery Worker（异步任务：邮件发送等）----
+  celery:
+    build: .
+    container_name: house_celery
+    command: celery -A app:celery worker --loglevel=info --concurrency=4
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
+      QQ_SMTP_EMAIL: ${QQ_SMTP_EMAIL}
+      QQ_SMTP_AUTH_CODE: ${QQ_SMTP_AUTH_CODE}
+    depends_on:
+      redis:
+        condition: service_healthy
       mysql:
         condition: service_healthy
     restart: always

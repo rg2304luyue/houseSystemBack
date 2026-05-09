@@ -15,7 +15,6 @@ def create_repaire():
     :返回: 创建成功的记录
     """
     data = request.json
-    print(data)
     # 检查请求数据是否为空
     if not data:
         return error_response(message="请求数据不能为空", code=400)

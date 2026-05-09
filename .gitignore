@@ -2,6 +2,28 @@ flask_env/
 .venv/
 __pycache__/
 */__pycache__/
-config.py
 exts/app_private_key.txt
 exts/alipay_public_key.txt
+
+# 环境变量文件（含密钥，绝对不能提交）
+.env
+.env.local
+.env.production
+
+# Redis 数据转储
+dump.rdb
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# 临时文件
+*.pid
+celerybeat-schedule
+*.egg-info/

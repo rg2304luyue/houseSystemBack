@@ -8,7 +8,7 @@ import jwt
 import datetime
 import re
 import random
-from blueprints.celery_bp import send_email_smtp
+from blueprints.celery_bp import send_verification_email
 
 email_auth_bp = Blueprint('email_auth', __name__, url_prefix='/email-auth')
 
@@ -89,17 +89,18 @@ def send_email_verification_code():
         redis_store.incr(daily_count_key)
         redis_store.expire(daily_count_key, 86400)  # 24小时过期
         
-        # 异步发送邮件
+        # 通过 Celery 异步发送邮件，立即返回不阻塞请求
         try:
-            send_email_smtp(email, verification_code)
-            return success_response(
-                code=Code.SAVE_OK,
-                message="验证码已发送到您的邮箱，请查收",
-                data={}
-            )
+            send_verification_email.delay(email, verification_code)
         except Exception as e:
-            current_app.logger.error(f"Send email error: {e}")
-            return error_response(code=Code.INTERNAL_SERVER_ERROR, message="邮件发送失败，请稍后重试")
+            current_app.logger.error(f"Celery queue error: {e}")
+            return error_response(code=Code.INTERNAL_SERVER_ERROR, message="邮件服务繁忙，请稍后重试")
+
+        return success_response(
+            code=Code.SAVE_OK,
+            message="验证码已发送到您的邮箱，请查收",
+            data={}
+        )
             
     except Exception as e:
         current_app.logger.error(f"Send email code error: {e}")

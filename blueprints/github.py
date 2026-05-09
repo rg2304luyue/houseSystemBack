@@ -1,10 +1,9 @@
 from flask import Blueprint, redirect, current_app, request, jsonify, session
-import requests
 from models.user_model import UserModel
 from exts import db
 import jwt
 import datetime
-from blueprints.celery_bp import fetch_github_user_data
+from blueprints.celery_bp import fetch_github_user_data_sync
 
 github_bp = Blueprint('github', __name__, url_prefix='/github')
 
@@ -21,18 +20,15 @@ def github_login():
     )
     return redirect(github_auth_url)
 
-# 修改方法，使用celery实现
-# 仍使用同步，会阻塞主线程，但耗时任务交给celery
-# 其实仍建议改为异步轮询的形式
+# GitHub OAuth 回调 —— 同步换取 token 并重定向（OAuth 流程本身要求同步）
 @github_bp.route("/callback")
 def github_callback():
     code = request.args.get("code")
     if not code:
         return "Missing code", 400
 
-    # 调用 Celery 异步任务获取用户信息
-    result = fetch_github_user_data.apply(args=[code])  # 同步调用，但只执行网络请求部分
-    data = result.get()
+    # 同步获取 GitHub 用户信息（OAuth 回调必须等待结果才能重定向）
+    data = fetch_github_user_data_sync(code)
 
     if not data or "error" in data:
         return f"GitHub 登录失败: {data.get('error', '未知错误')}", 400

@@ -46,8 +46,7 @@ def get_hotlists():
     if cached_data:
         return success_response(cached_data)
 
-    # 不显示，证明返回了缓存中的数据
-    print("hotlists无缓存")
+    current_app.logger.debug("hotlists无缓存")
 
     house_hot_List=HouseInfo.query.order_by(HouseInfo.page_views.desc()).limit(4).all()
     data = [a.to_dict() for a in house_hot_List]
@@ -72,8 +71,7 @@ def get_newlists():
     if cached_data:
         return success_response(cached_data)
 
-    # 不显示，证明返回了缓存中的数据
-    print("newlists无缓存")
+    current_app.logger.debug("newlists无缓存")
 
     house_info_num=HouseInfo.query.count()
     #获取前六条数据
@@ -190,8 +188,7 @@ def get_all_house_infos():
             }
             return success_response(data=response_data, message="查询成功", code=Code.GET_OK)
 
-        # 不显示，证明返回了缓存中的数据
-        print("houseinfo获取所有房源无缓存")
+        current_app.logger.debug("houseinfo获取所有房源无缓存")
 
         # 构建查询
         query = session.query(HouseInfo)
@@ -336,8 +333,7 @@ def get_house_info_by_id(house_id):
         if cached_data:
             return success_response(data=cached_data, message="查询成功", code=Code.GET_OK)
 
-        # 不显示，证明返回了缓存中的数据
-        print(f"house{house_id}无缓存信息")
+        current_app.logger.debug(f"house{house_id}无缓存信息")
 
         house = session.get(HouseInfo, house_id)  # SQLAlchemy 2.0 style
         # 或者 house = session.query(HouseInfo).filter_by(id=house_id).first()

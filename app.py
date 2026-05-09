@@ -1,4 +1,9 @@
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()  # 本地开发：从 .env 加载环境变量；Docker 下变量已注入，无影响
+
 from flask import Flask
 from config import Config
 from exts.db import db
@@ -89,11 +94,11 @@ def index():
             first_info = db.session.query(HouseInfo).first()
 
         if first_info:
-            print("数据库连接成功，并能查询到HouseInfo数据。")
+            app.logger.info("数据库连接成功，并能查询到HouseInfo数据。")
         else:
-            print("数据库连接成功，但HouseInfo表中无数据。")
+            app.logger.warning("数据库连接成功，但HouseInfo表中无数据。")
     except Exception as e:
-        print(f"数据库连接或查询失败: {e}")
+        app.logger.error(f"数据库连接或查询失败: {e}")
     return "OK~ Backend is running."
 
 def _wait_for_db(retries=30, delay=2):
