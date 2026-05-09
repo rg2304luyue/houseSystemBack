@@ -13,3 +13,5 @@ docker-compose.yml
 check_keys.py
 images/
 dump.rdb
+exts/app_private_key.txt
+exts/alipay_public_key.txt

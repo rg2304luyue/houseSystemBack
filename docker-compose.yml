@@ -47,6 +47,9 @@ services:
     container_name: house_backend
     ports:
       - "5000:5000"
+    volumes:
+      - ./exts/app_private_key.txt:/app/exts/app_private_key.txt:ro
+      - ./exts/alipay_public_key.txt:/app/exts/alipay_public_key.txt:ro
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
@@ -73,6 +76,9 @@ services:
     build: .
     container_name: house_celery
     command: celery -A app:celery worker --loglevel=info --concurrency=4
+    volumes:
+      - ./exts/app_private_key.txt:/app/exts/app_private_key.txt:ro
+      - ./exts/alipay_public_key.txt:/app/exts/alipay_public_key.txt:ro
     environment:
       FLASK_ENV: production
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
