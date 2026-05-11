@@ -27,3 +27,6 @@ Thumbs.db
 *.pid
 celerybeat-schedule
 *.egg-info/
+
+# 测试报告
+htmlcov/

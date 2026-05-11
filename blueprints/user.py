@@ -372,7 +372,7 @@ def to_landlord():
         db.session.commit()
         return success_response(data=newuser.to_dict(), message="已成为房东", code=200)
     else:
-        db.rollback()
+        db.session.rollback()
         return error_response(code=Code.UPDATE_ERR, message="修改错误")
 
 # 获取avatarUrl

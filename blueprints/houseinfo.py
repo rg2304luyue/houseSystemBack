@@ -549,7 +549,9 @@ def get_house_info_landlord():
     if data is None:
         return error_response("请求数据为空", code=Code.NOT_FOUND)
 
-    landlord = data['username']
+    landlord = data.get('username')
+    if not landlord:
+        return error_response("缺少必填字段: username", code=Code.BAD_REQUEST)
 
     try:
         houses = get_house_by_landlord(landlord)
