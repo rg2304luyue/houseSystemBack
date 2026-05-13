@@ -9,21 +9,29 @@ from core.agent_utils.prompt_loader import load_system_prompt, load_report_promp
 import logging
 logger = logging.getLogger(__name__)
 
+MAX_TOOL_CALLS = 20  # 单次 Agent 运行最大工具调用次数
+
+
 @wrap_tool_call
 def monitor_tool(
-        # 请求的封装数据
         request: ToolCallRequest,
-        # 执行的函数本身
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
-) -> ToolMessage | Command:  # 工具执行的监控
-    logger.info(f"[tool monitor]执行工具: {request.tool_call['name']}")
-    logger.info(f"[tool monitor]执行参数: {request.tool_call['args']}")
+) -> ToolMessage | Command:
+    # 工具调用步数限制，防止无限循环
+    count = request.runtime.context.get("_tool_call_count", 0) + 1
+    request.runtime.context["_tool_call_count"] = count
+    if count > MAX_TOOL_CALLS:
+        logger.warning(f"[tool monitor] 工具调用次数已达上限 {MAX_TOOL_CALLS}，强制终止")
+        raise RuntimeError(f"工具调用次数超过上限 ({MAX_TOOL_CALLS})，已终止以避免无限循环。请缩小问题范围后重试。")
+
+    logger.info(f"[tool monitor] 执行工具({count}/{MAX_TOOL_CALLS}): {request.tool_call['name']}")
+    logger.info(f"[tool monitor] 执行参数: {request.tool_call['args']}")
     try:
         result = handler(request)
-        logger.info(f"[tool monitor]工具{request.tool_call['name']}调用成功")
+        logger.info(f"[tool monitor] 工具{request.tool_call['name']}调用成功")
 
         if request.tool_call['name'] == 'fill_context_for_report':
-            logger.info(f"[tool monitor]fill_context_for_report工具被调用，注入上下文 report=True")
+            logger.info(f"[tool monitor] fill_context_for_report工具被调用，注入上下文 report=True")
             request.runtime.context["report"] = True
         return result
     except Exception as e:

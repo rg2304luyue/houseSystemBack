@@ -12,6 +12,7 @@ mcp_tools.py - MCP（Model Context Protocol）风格的扩展工具集
 import json
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.tools import tool
 from datetime import datetime
 from config import Config
@@ -70,14 +71,18 @@ def get_weather_for_visit(city: str = "长沙") -> str:
 
         logger.info(f"[Tool:get_weather] 查询城市: {city}, adcode/city: {adcode}")
 
-        # ---- 1. 获取实时天气 ----
-        live_url = "https://restapi.amap.com/v3/weather/weatherInfo"
-        live_resp = requests.get(live_url, params={
-            "key": api_key,
-            "city": adcode,
-            "extensions": "base",   # base = 实时天气
-            "output": "JSON"
-        }, timeout=8)
+        # ---- 1. 并行获取实时天气 + 未来3天预报 ----
+        base_url = "https://restapi.amap.com/v3/weather/weatherInfo"
+        live_params = {"key": api_key, "city": adcode, "extensions": "base", "output": "JSON"}
+        forecast_params = {"key": api_key, "city": adcode, "extensions": "all", "output": "JSON"}
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_live = executor.submit(requests.get, base_url, params=live_params, timeout=8)
+            future_forecast = executor.submit(requests.get, base_url, params=forecast_params, timeout=8)
+
+            live_resp = future_live.result()
+            forecast_resp = future_forecast.result()
+
         live_data = live_resp.json()
 
         if live_data.get("status") != "1" or not live_data.get("lives"):
@@ -91,14 +96,6 @@ def get_weather_for_visit(city: str = "长沙") -> str:
         current_humidity = live.get("humidity", "?")
         report_time = live.get("reporttime", "")
 
-        # ---- 2. 获取未来3天预报 ----
-        forecast_url = "https://restapi.amap.com/v3/weather/weatherInfo"
-        forecast_resp = requests.get(forecast_url, params={
-            "key": api_key,
-            "city": adcode,
-            "extensions": "all",   # all = 预报天气
-            "output": "JSON"
-        }, timeout=8)
         forecast_data = forecast_resp.json()
 
         forecast_list = []

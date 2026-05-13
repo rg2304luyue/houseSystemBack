@@ -18,178 +18,27 @@ def _get_user_id():
         return g.user.get('id')
     return getattr(g.user, 'id', None)
 
-class HouseRecommendationBot:
-    def __init__(self):
-        self.house_search_functions = [
-            {
-                "name": "search_houses_by_criteria",
-                "description": "根据用户提供的条件搜索房源，支持价格、区域、面积、房间数量等条件",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "min_price": {
-                            "type": "integer",
-                            "description": "最低价格（元/月）"
-                        },
-                        "max_price": {
-                            "type": "integer", 
-                            "description": "最高价格（元/月）"
-                        },
-                        "region": {
-                            "type": "string",
-                            "description": "区域，如：雨花、岳麓、天心等"
-                        },
-                        "min_area": {
-                            "type": "number",
-                            "description": "最小面积（平方米）"
-                        },
-                        "max_area": {
-                            "type": "number",
-                            "description": "最大面积（平方米）"
-                        },
-                        "rooms": {
-                            "type": "string",
-                            "description": "房间配置，如：1室1厅、2室1厅、3室2厅等"
-                        },
-                        "rent_type": {
-                            "type": "string",
-                            "description": "租赁类型：整租 或 合租"
-                        },
-                        "subway": {
-                            "type": "boolean",
-                            "description": "是否需要近地铁"
-                        },
-                        "decoration": {
-                            "type": "string",
-                            "description": "装修情况：精装、简装、毛坯等"
-                        }
-                    }
-                }
-            },
-            {
-                "name": "get_house_details",
-                "description": "获取特定房源的详细信息",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "house_id": {
-                            "type": "integer",
-                            "description": "房源ID"
-                        }
-                    },
-                    "required": ["house_id"]
-                }
-            },
-            {
-                "name": "get_popular_houses",
-                "description": "获取热门房源（按浏览量排序）",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "description": "返回的房源数量，默认10个",
-                            "default": 10
-                        }
-                    }
-                }
-            }
-        ]
+def _load_history(session_id: int, max_chars: int = 8000) -> list:
+    """加载对话历史，按字符数截断以控制 token 消耗（~4000 tokens）"""
+    all_records = db.session.query(ChatMessage) \
+        .filter(ChatMessage.session_id == session_id) \
+        .order_by(ChatMessage.id.asc()) \
+        .all()
 
-    def search_houses_by_criteria(self, **kwargs):
-        """根据条件搜索房源"""
-        try:
-            query = db.session.query(HouseInfo).filter(HouseInfo.available == 1)
-            
-            # 价格筛选
-            if kwargs.get('min_price'):
-                query = query.filter(HouseInfo.price >= kwargs['min_price'])
-            if kwargs.get('max_price'):
-                query = query.filter(HouseInfo.price <= kwargs['max_price'])
-            
-            # 区域筛选
-            if kwargs.get('region'):
-                query = query.filter(HouseInfo.region.like(f"%{kwargs['region']}%"))
-            
-            # 面积筛选
-            if kwargs.get('min_area'):
-                query = query.filter(HouseInfo.area >= kwargs['min_area'])
-            if kwargs.get('max_area'):
-                query = query.filter(HouseInfo.area <= kwargs['max_area'])
-            
-            # 房间配置筛选
-            if kwargs.get('rooms'):
-                query = query.filter(HouseInfo.rooms.like(f"%{kwargs['rooms']}%"))
-            
-            # 租赁类型筛选
-            if kwargs.get('rent_type'):
-                query = query.filter(HouseInfo.rent_type == kwargs['rent_type'])
-            
-            # 地铁筛选
-            if kwargs.get('subway'):
-                query = query.filter(HouseInfo.subway == 1)
-            
-            # 装修情况筛选
-            if kwargs.get('decoration'):
-                query = query.filter(HouseInfo.decoration.like(f"%{kwargs['decoration']}%"))
-            
-            # 限制返回数量并按价格排序
-            houses = query.order_by(HouseInfo.price.asc()).limit(20).all()
-            
-            return {
-                "success": True,
-                "houses": [house.to_dict() for house in houses],
-                "count": len(houses)
-            }
-        except Exception as e:
-            current_app.logger.error(f"Search houses error: {e}")
-            return {"success": False, "error": str(e)}
+    if not all_records:
+        return []
 
-    def get_house_details(self, house_id):
-        """获取房源详细信息"""
-        try:
-            house = db.session.query(HouseInfo).filter(HouseInfo.id == house_id).first()
-            if house:
-                return {
-                    "success": True,
-                    "house": house.to_dict()
-                }
-            else:
-                return {"success": False, "error": "房源不存在"}
-        except Exception as e:
-            current_app.logger.error(f"Get house details error: {e}")
-            return {"success": False, "error": str(e)}
+    # 从最新向旧累计字符数，超过阈值则截断旧消息
+    total = 0
+    start_idx = len(all_records)
+    for i in range(len(all_records) - 1, -1, -1):
+        total += len(all_records[i].content or '')
+        if total > max_chars:
+            start_idx = i + 1
+            break
+        start_idx = i
 
-    def get_popular_houses(self, limit=10):
-        """获取热门房源"""
-        try:
-            houses = db.session.query(HouseInfo)\
-                .filter(HouseInfo.available == 1)\
-                .order_by(HouseInfo.page_views.desc())\
-                .limit(limit).all()
-            
-            return {
-                "success": True,
-                "houses": [house.to_dict() for house in houses],
-                "count": len(houses)
-            }
-        except Exception as e:
-            current_app.logger.error(f"Get popular houses error: {e}")
-            return {"success": False, "error": str(e)}
-
-    def execute_function_call(self, function_name, arguments):
-        """执行函数调用"""
-        if function_name == "search_houses_by_criteria":
-            return self.search_houses_by_criteria(**arguments)
-        elif function_name == "get_house_details":
-            return self.get_house_details(arguments['house_id'])
-        elif function_name == "get_popular_houses":
-            return self.get_popular_houses(arguments.get('limit', 10))
-        else:
-            return {"success": False, "error": f"未知的函数: {function_name}"}
-
-# 创建房产推荐机器人实例
-house_bot = HouseRecommendationBot()
+    return [{"role": m.role, "content": m.content} for m in all_records[start_idx:]]
 
 
 @chat_ai_bp.route('/chat', methods=['POST'])
@@ -218,12 +67,7 @@ def chat_with_ai():
         db.session.add(user_msg)
         db.session.flush()
 
-        history_records = db.session.query(ChatMessage) \
-            .filter(ChatMessage.session_id == session_id) \
-            .order_by(ChatMessage.id.desc()) \
-            .limit(11).all()
-        history_records.reverse()
-        formatted_history = [{"role": msg.role, "content": msg.content} for msg in history_records[:-1]]
+        formatted_history = _load_history(session_id)
 
         ai_reply = my_agent.execute(user_message, history=formatted_history)
 
@@ -283,12 +127,7 @@ def chat_stream():
         user_msg = ChatMessage(session_id=session_id, role='user', content=user_message)
         db.session.add(user_msg)
 
-        history_records = db.session.query(ChatMessage) \
-            .filter(ChatMessage.session_id == session_id) \
-            .order_by(ChatMessage.id.desc()) \
-            .limit(11).all()
-        history_records.reverse()
-        formatted_history = [{"role": msg.role, "content": msg.content} for msg in history_records[:-1]]
+        formatted_history = _load_history(session_id)
 
         # 必须在进入流式生成器前 commit，确保 ChatSession 和用户消息已写入数据库
         # 否则 generate() 内部的新 db.session 会因外键约束失败
@@ -363,7 +202,32 @@ def get_sessions():
     return success_response(code=Code.GET_OK, data=[s.to_dict() for s in sessions])
 
 # ============================================================
-# 4. 会话消息记录
+# 4. 删除会话
+# ============================================================
+@chat_ai_bp.route('/sessions/<int:session_id>', methods=['DELETE'])
+@token_required
+def delete_session(session_id):
+    current_user_id = _get_user_id()
+    if not current_user_id:
+        return error_response("身份校验失败", code=Code.UNAUTHORIZED)
+
+    session = db.session.get(ChatSession, session_id)
+    if not session:
+        return error_response("会话不存在", code=Code.NOT_FOUND)
+    if session.user_id != current_user_id:
+        return error_response("无权操作", code=Code.FORBIDDEN)
+
+    try:
+        db.session.delete(session)
+        db.session.commit()
+        return success_response(message="删除成功", code=Code.DELETE_OK)
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"删除会话 {session_id} 失败: {e}")
+        return error_response(f"删除失败: {str(e)}", code=Code.INTERNAL_SERVER_ERROR)
+
+# ============================================================
+# 5. 会话消息记录
 # ============================================================
 @chat_ai_bp.route('/sessions/<int:session_id>/messages', methods=['GET'])
 def get_session_messages(session_id):
@@ -375,7 +239,7 @@ def get_session_messages(session_id):
         return error_response(code=Code.INTERNAL_SERVER_ERROR, message=str(e))
 
 # ============================================================
-# 5. 房源搜索（直接查询，不经过AI）
+# 6. 房源搜索（直接查询，不经过AI）
 # ============================================================
 @chat_ai_bp.route('/houses/search', methods=['POST'])
 def search_houses():

@@ -2,15 +2,14 @@
 总结服务类：用户提问，搜索参考资料，将提问和参考资料交给模型，让模型总结回复
 """
 from langchain_core.documents import Document
+import logging
 from langchain_core.output_parsers import StrOutputParser
 from core.rag.vector_store import VectorStoreService
 from core.agent_utils.prompt_loader import load_rag_prompt
 from langchain_core.prompts import PromptTemplate
 from core.agent_model.factor import chat_model
 
-def print_prompt(prompt):
-    print("="*5, prompt.to_string(), "="*5)
-    return prompt
+logger = logging.getLogger(__name__)
 
 class RagSummarizeService(object):
     def __init__(self):
@@ -22,7 +21,7 @@ class RagSummarizeService(object):
         self.chain = self._init_chain()
 
     def _init_chain(self):
-        chain = self.prompt_template | print_prompt | self.model | StrOutputParser()
+        chain = self.prompt_template | self.model | StrOutputParser()
         return chain
 
     def retriever_docs(self, query: str) -> list[Document]:
