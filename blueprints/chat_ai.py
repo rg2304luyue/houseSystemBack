@@ -1,15 +1,105 @@
 from flask import Blueprint, request, current_app, jsonify, stream_with_context, Response
 import json
+import logging
+from datetime import timedelta
+from cachetools import TTLCache
 from core.agent.react_agent import ReactAgent
 from models.house_model import HouseInfo
 from exts.db import db
+from exts.redis import redis_store
 from utils.response_utils import success_response, error_response, Code
 from decorators.decorators import token_required
 from flask import g
 from models.chat_model import ChatSession, ChatMessage
 
+logger = logging.getLogger(__name__)
+
 chat_ai_bp = Blueprint('chat_ai', __name__, url_prefix='/chat-ai')
 my_agent = ReactAgent()
+
+# ── 短期记忆三级存储配置 ──
+CHAT_HISTORY_TTL = timedelta(hours=2)       # L2 Redis 过期时间
+CHAT_HISTORY_MAX_MESSAGES = 10              # 保留最近 10 条消息
+CHAT_L1_TTL = 30                            # L1 本地缓存 TTL（秒）
+CHAT_L1_MAXSIZE = 256                       # L1 最多缓存 256 个会话
+chat_history_l1 = TTLCache(maxsize=CHAT_L1_MAXSIZE, ttl=CHAT_L1_TTL)
+
+def _redis_history_key(session_id):
+    return f"chat_history:{session_id}"
+
+def _load_l2_history(session_id):
+    """L2 Redis 加载最近 N 条消息，不可用时返回 None"""
+    try:
+        raw = redis_store.lrange(
+            _redis_history_key(session_id),
+            -CHAT_HISTORY_MAX_MESSAGES, -1
+        )
+        if raw:
+            return [json.loads(item) for item in raw]
+    except Exception:
+        pass
+    return None
+
+
+def _append_history(session_id, role, content):
+    """追加一条消息到 L1 + L2，L2 先写"""
+    item = {"role": role, "content": content}
+    # L2 Redis 先写
+    try:
+        key = _redis_history_key(session_id)
+        pipe = redis_store.pipeline()
+        pipe.rpush(key, json.dumps(item))
+        pipe.ltrim(key, -CHAT_HISTORY_MAX_MESSAGES, -1)
+        pipe.expire(key, CHAT_HISTORY_TTL)
+        pipe.execute()
+        new_len = redis_store.llen(key)
+        logger.info(f"[History] session={session_id} → Redis 追加 [{role}], 当前 {new_len} 条")
+    except Exception as e:
+        logger.warning(f"Redis 历史追加失败: {e}")
+    # L1 本地内存追加 + 裁剪（L2 成功后才更新，保持一致性）
+    try:
+        if session_id in chat_history_l1:
+            chat_history_l1[session_id].append(item)
+            # 同步裁剪，和 Redis LTRIM 保持一致
+            chat_history_l1[session_id] = chat_history_l1[session_id][-CHAT_HISTORY_MAX_MESSAGES:]
+            logger.info(f"[History] session={session_id} → L1 同步追加 [{role}]")
+    except Exception:
+        pass
+
+
+def _backfill_history(session_id, history):
+    """MySQL 数据回填 L2 + L1"""
+    # L2 Redis 先写
+    try:
+        key = _redis_history_key(session_id)
+        pipe = redis_store.pipeline()
+        for item in history:
+            pipe.rpush(key, json.dumps(item))
+        pipe.ltrim(key, -CHAT_HISTORY_MAX_MESSAGES, -1)
+        pipe.expire(key, CHAT_HISTORY_TTL)
+        pipe.execute()
+    except Exception:
+        pass
+    # L1 本地内存（L2 成功后回填）
+    try:
+        chat_history_l1[session_id] = list(history)
+    except Exception:
+        pass
+
+
+def _delete_history(session_id):
+    """删除 L1 + L2 中的会话历史"""
+    # L2 先删
+    try:
+        redis_store.delete(_redis_history_key(session_id))
+        logger.info(f"[History] session={session_id} ← Redis 已删除")
+    except Exception:
+        pass
+    # L1 后删
+    try:
+        chat_history_l1.pop(session_id, None)
+    except Exception:
+        pass
 
 def _get_user_id():
     if not hasattr(g, 'user') or not g.user:
@@ -19,7 +109,26 @@ def _get_user_id():
     return getattr(g.user, 'id', None)
 
 def _load_history(session_id: int, max_chars: int = 8000) -> list:
-    """加载对话历史，按字符数截断以控制 token 消耗（~4000 tokens）"""
+    """加载对话历史：L1 本地 → L2 Redis → MySQL 兜底 → 回填"""
+    # L1: 本地内存缓存
+    try:
+        if session_id in chat_history_l1:
+            logger.info(f"[History] session={session_id} ← L1 命中, {len(chat_history_l1[session_id])} 条")
+            return chat_history_l1[session_id]
+    except Exception:
+        pass
+
+    # L2: Redis 短期记忆
+    redis_history = _load_l2_history(session_id)
+    if redis_history:
+        logger.info(f"[History] session={session_id} ← L2 Redis 命中, {len(redis_history)} 条")
+        try:
+            chat_history_l1[session_id] = redis_history
+        except Exception:
+            pass
+        return redis_history
+
+    # L3: MySQL 持久化
     all_records = db.session.query(ChatMessage) \
         .filter(ChatMessage.session_id == session_id) \
         .order_by(ChatMessage.id.asc()) \
@@ -38,7 +147,13 @@ def _load_history(session_id: int, max_chars: int = 8000) -> list:
             break
         start_idx = i
 
-    return [{"role": m.role, "content": m.content} for m in all_records[start_idx:]]
+    history = [{"role": m.role, "content": m.content} for m in all_records[start_idx:]]
+
+    # 回填 L2 + L1
+    logger.info(f"[History] session={session_id} ← MySQL 加载, {len(history)} 条，回填 Redis")
+    _backfill_history(session_id, history)
+
+    return history
 
 
 @chat_ai_bp.route('/chat', methods=['POST'])
@@ -79,6 +194,10 @@ def chat_with_ai():
             session_obj.updated_at = db.func.now()
 
         db.session.commit()
+
+        # 同步到 Redis 短期记忆
+        _append_history(session_id, 'user', user_message)
+        _append_history(session_id, 'assistant', ai_reply)
 
         return success_response(
             code=Code.GET_OK,
@@ -132,6 +251,9 @@ def chat_stream():
         # 必须在进入流式生成器前 commit，确保 ChatSession 和用户消息已写入数据库
         # 否则 generate() 内部的新 db.session 会因外键约束失败
         db.session.commit()
+
+        # 同步用户消息到 Redis 短期记忆
+        _append_history(session_id, 'user', user_message)
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Stream pre-process error: {e}")
@@ -164,6 +286,9 @@ def chat_stream():
                     if session_obj:
                         session_obj.updated_at = db.func.now()
                     db.session.commit()
+
+                    # 同步 AI 回复到 Redis 短期记忆
+                    _append_history(final_session_id, 'assistant', full_reply)
                 except Exception as e:
                     db.session.rollback()
                     app.logger.error(f"Stream save error: {e}")
@@ -220,6 +345,7 @@ def delete_session(session_id):
     try:
         db.session.delete(session)
         db.session.commit()
+        _delete_history(session_id)
         return success_response(message="删除成功", code=Code.DELETE_OK)
     except Exception as e:
         db.session.rollback()

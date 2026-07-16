@@ -18,6 +18,7 @@ class Contract(db.Model):
     tenantPhone: Mapped[str] = mapped_column(String(255))
     formattedRent: Mapped[str] = mapped_column(String(255))
     currentDate: Mapped[str] = mapped_column(DateTime)
+    houseId: Mapped[int] = mapped_column(Integer, nullable=True, index=True)
 
     def to_dict(self):
         return {
@@ -34,4 +35,5 @@ class Contract(db.Model):
             "tenantPhone": self.tenantPhone,
             "formattedRent": self.formattedRent,
             "currentDate": self.currentDate.strftime("%Y-%m-%d") if self.currentDate else None
+            ,"houseId": self.houseId
         }

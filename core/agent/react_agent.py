@@ -3,7 +3,7 @@ react_agent.py - ReAct Agent
 """
 import time
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 from core.agent_model.factor import chat_model
 from core.agent_utils.prompt_loader import load_system_prompt
 from core.agent.tools.agent_tools import search_houses_by_criteria, get_house_details, get_popular_houses
@@ -137,13 +137,6 @@ class ReactAgent:
                 content = latest.content
                 if len(content) > sent_length:
                     delta = content[sent_length:]
-                    sent_length = len(content)
-                    yield delta
-                # 如果内容被完全重写（长度变短），从头推送
-                elif sent_length > 0 and not content.startswith(
-                    messages[-1]["content"] if messages and messages[-1].get("role") == "assistant" else ""
-                ):
-                    delta = content
                     sent_length = len(content)
                     yield delta
 

@@ -1,6 +1,7 @@
 # app/routes/house_info_routes.py
 from collections import defaultdict
-from flask import Blueprint, request, current_app
+from flask import Blueprint, request, current_app, g
+from decorators.decorators import token_required
 from models.house_model import HouseInfo  # , SessionLocal # 如果不使用Flask-SQLAlchemy
 from utils.response_utils import success_response, error_response, Code
 from sqlalchemy.exc import SQLAlchemyError
@@ -38,21 +39,21 @@ def get_hotlists():
     :说明: 结果缓存到Redis，有效期5分钟
     :返回: 热门房源列表
     """
-    # 构建缓存键
+    no_cache = request.args.get('no_cache', '0') == '1'
     cache_key = 'house_hot_lists'
 
-    # 检查缓存
-    cached_data = RedisCache.get_cache(cache_key)
-    if cached_data:
-        return success_response(cached_data)
+    if not no_cache:
+        cached_data = RedisCache.get_cache(cache_key)
+        if cached_data:
+            return success_response(cached_data)
 
     current_app.logger.debug("hotlists无缓存")
 
     house_hot_List=HouseInfo.query.order_by(HouseInfo.page_views.desc()).limit(4).all()
     data = [a.to_dict() for a in house_hot_List]
 
-    # 将查询结果存入 Redis 缓存
-    RedisCache.set_cache(cache_key, data)
+    if not no_cache:
+        RedisCache.set_cache(cache_key, data)
     return success_response(data)
 
 #1.3最新房源
@@ -63,13 +64,13 @@ def get_newlists():
     :说明: 结果缓存到Redis，有效期5分钟
     :返回: 最新房源列表
     """
-    # 构建缓存键
+    no_cache = request.args.get('no_cache', '0') == '1'
     cache_key = 'house_new_lists'
 
-    # 检查缓存
-    cached_data = RedisCache.get_cache(cache_key)
-    if cached_data:
-        return success_response(cached_data)
+    if not no_cache:
+        cached_data = RedisCache.get_cache(cache_key)
+        if cached_data:
+            return success_response(cached_data)
 
     current_app.logger.debug("newlists无缓存")
 
@@ -78,12 +79,13 @@ def get_newlists():
     house_new_list=HouseInfo.query.order_by(HouseInfo.publish_time.desc()).limit(4).all()
     data = [a.to_dict() for a in house_new_list]
 
-    # 将查询结果存入缓存
-    RedisCache.set_cache(cache_key, data)
+    if not no_cache:
+        RedisCache.set_cache(cache_key, data)
     return success_response(data)
 
 # 1. 新增房源信息 (对应房东发布房源)
 @house_info_bp.route('/', methods=['POST'])
+@token_required
 def add_house_info():
     """
     发布新房源
@@ -118,6 +120,8 @@ def add_house_info():
         # else: # 如果前端不传，模型中的server_default会生效
         #     data[field] = HouseInfo.__table__.columns[field].server_default.arg.text.strip("'") # 获取默认值
 
+    data['landlord'] = g.user.name or g.user.phone
+    data['phone_num'] = g.user.phone
     new_house = HouseInfo(**data)
 
     session = get_db_session()
@@ -164,29 +168,31 @@ def get_all_house_infos():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)  # 每页数量，前端可控
 
-        # 构建缓存键（不含 page，缓存完整查询结果，所有分页共用同一缓存）
+        no_cache = request.args.get('no_cache', '0') == '1'
+
+        # 构建缓存键（不含 page/per_page/no_cache，缓存完整查询结果，所有分页共用同一缓存）
         cache_key = 'all_house_infos'
         for key in sorted(request.args.keys()):
-            if key not in ['page', 'per_page']:
+            if key not in ['page', 'per_page', 'no_cache']:
                 cache_key += f':{key}:{request.args[key]}'
 
-        # 检查缓存（返回完整结果集，由代码分页）
-        cached_data = RedisCache.get_cache(cache_key)
-        if cached_data:
-            all_items = cached_data['items']
-            total = cached_data['total']
-            start = (page - 1) * per_page
-            end = start + per_page
-            paged_items = all_items[start:end]
+        if not no_cache:
+            cached_data = RedisCache.get_cache(cache_key)
+            if cached_data:
+                all_items = cached_data['items']
+                total = cached_data['total']
+                start = (page - 1) * per_page
+                end = start + per_page
+                paged_items = all_items[start:end]
 
-            response_data = {
-                "items": paged_items,
-                "total": total,
-                "page": page,
-                "per_page": per_page,
-                "pages": (total + per_page - 1) // per_page
-            }
-            return success_response(data=response_data, message="查询成功", code=Code.GET_OK)
+                response_data = {
+                    "items": paged_items,
+                    "total": total,
+                    "page": page,
+                    "per_page": per_page,
+                    "pages": (total + per_page - 1) // per_page
+                }
+                return success_response(data=response_data, message="查询成功", code=Code.GET_OK)
 
         current_app.logger.debug("houseinfo获取所有房源无缓存")
 
@@ -286,7 +292,8 @@ def get_all_house_infos():
         total = len(all_items)
 
         # 将完整结果集存入缓存（不分页）
-        RedisCache.set_cache(cache_key, {"items": all_items, "total": total})
+        if not no_cache:
+            RedisCache.set_cache(cache_key, {"items": all_items, "total": total})
 
         # 从完整结果集中分页
         start = (page - 1) * per_page
@@ -325,22 +332,21 @@ def get_house_info_by_id(house_id):
     """
     session = get_db_session()
     try:
-        # 构建缓存键
+        no_cache = request.args.get('no_cache', '0') == '1'
         cache_key = f'house_info:{house_id}'
 
-        # 检查 Redis 中是否存在缓存数据
-        cached_data = RedisCache.get_cache(cache_key)
-        if cached_data:
-            return success_response(data=cached_data, message="查询成功", code=Code.GET_OK)
+        if not no_cache:
+            cached_data = RedisCache.get_cache(cache_key)
+            if cached_data:
+                return success_response(data=cached_data, message="查询成功", code=Code.GET_OK)
 
         current_app.logger.debug(f"house{house_id}无缓存信息")
 
-        house = session.get(HouseInfo, house_id)  # SQLAlchemy 2.0 style
-        # 或者 house = session.query(HouseInfo).filter_by(id=house_id).first()
+        house = session.get(HouseInfo, house_id)
         if house:
             house_data = house.to_dict()
-            # 正确：在找到数据时设置缓存，且不重复使用 json.dumps
-            RedisCache.set_cache(cache_key, house_data)
+            if not no_cache:
+                RedisCache.set_cache(cache_key, house_data)
             return success_response(data=house_data, code=Code.GET_OK)
         else:
             return error_response("房源信息未找到", code=Code.NOT_FOUND)
@@ -352,6 +358,7 @@ def get_house_info_by_id(house_id):
 
 # 4. 更新房源信息 (对应房东编辑房源)
 @house_info_bp.route('/<int:house_id>', methods=['PUT'])
+@token_required
 def update_house_info(house_id):
     """
     更新房源信息
@@ -361,6 +368,8 @@ def update_house_info(house_id):
     """
     session = get_db_session()
     house = session.get(HouseInfo, house_id)
+    if house and house.landlord != (g.user.name or g.user.phone):
+        return error_response("No permission to update this house", code=Code.FORBIDDEN)
     if not house:
         return error_response("房源信息未找到", code=Code.NOT_FOUND)
 
@@ -401,6 +410,7 @@ def update_house_info(house_id):
 
 # 5. 删除房源信息 (对应房东删除房源)
 @house_info_bp.route('/<int:house_id>', methods=['DELETE'])
+@token_required
 def delete_house_info(house_id):
     """
     删除房源
@@ -410,6 +420,8 @@ def delete_house_info(house_id):
     """
     session = get_db_session()
     house = session.get(HouseInfo, house_id)
+    if house and house.landlord != (g.user.name or g.user.phone):
+        return error_response("No permission to delete this house", code=Code.FORBIDDEN)
     if not house:
         return error_response("房源信息未找到", code=Code.NOT_FOUND)
 
@@ -538,6 +550,7 @@ def add_house_info_views():
 
 # 根据房东名字查找房源
 @house_info_bp.route('/landlord', methods=['POST'])
+@token_required
 def get_house_info_landlord():
     """
     根据房东用户名查询其名下所有房源
@@ -549,7 +562,7 @@ def get_house_info_landlord():
     if data is None:
         return error_response("请求数据为空", code=Code.NOT_FOUND)
 
-    landlord = data.get('username')
+    landlord = g.user.name or g.user.phone
     if not landlord:
         return error_response("缺少必填字段: username", code=Code.BAD_REQUEST)
 

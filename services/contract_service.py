@@ -1,37 +1,30 @@
-from models.contract_model import Contract
-from exts.db import db
 from datetime import datetime
 
-def create_contracts(data):
-    """添加新合同"""
-    start_date = datetime.fromisoformat(data['startDate'].replace('Z', '+00:00'))
-    end_date = datetime.fromisoformat(data['endDate'].replace('Z', '+00:00'))
-    current_date = datetime.strptime(data['currentDate'], '%Y-%m-%d')
+from models.contract_model import Contract
 
-    # 处理 landlordId 和 tenantId
-    landlord_id = data['landlordId'] if data['landlordId'].strip() else None
-    tenant_id = data['tenantId'] if data['tenantId'].strip() else None
 
-    contract = Contract(
-        rentValue=data['rentValue'],
-        purpose=data['purpose'],
-        startDate=start_date,
-        endDate=end_date,
-        landlordName=data['landlordName'],
-        landlordId=landlord_id,
-        landlordPhone=data['landlordPhone'],
-        tenantName=data['tenantName'],
-        tenantId=tenant_id,
-        tenantPhone=data['tenantPhone'],
-        formattedRent=data['formattedRent'],
-        currentDate=current_date
+def _parse_date(value):
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def create_contract(data, *, house, tenant):
+    """Build, but do not commit, a contract owned by the supplied entities."""
+    return Contract(
+        rentValue=str(data["rentValue"]),
+        purpose=data["purpose"],
+        startDate=_parse_date(data["startDate"]),
+        endDate=_parse_date(data["endDate"]),
+        landlordName=house.landlord,
+        landlordId=str(house.landlord),
+        landlordPhone=house.phone_num or "",
+        tenantName=tenant.name or tenant.phone,
+        tenantId=str(tenant.id),
+        tenantPhone=tenant.phone or "",
+        formattedRent=data.get("formattedRent", str(data["rentValue"])),
+        currentDate=datetime.utcnow(),
+        houseId=house.id,
     )
-    db.session.add(contract)
-    db.session.commit()
-    return contract
 
-def get_contract_by_landlordId(landlord_id):
-    return db.session.query(Contract).filter_by(landlordId=landlord_id).one()
 
-def get_contract_by_landlordId_and_tenant(landlord_id, tenantName):
-    return db.session.query(Contract).filter_by(landlordId=landlord_id, tenantName=tenantName).one()
+def get_contract_by_landlord_id_and_tenant(landlord_name, tenant_name):
+    return Contract.query.filter_by(landlordName=landlord_name, tenantName=tenant_name).first()

@@ -150,7 +150,7 @@ def get_user_by_username(name):
 
 # 用户密码修改接口,通过id修改
 @user.route("/userinfo/password", methods=["PUT"])
-# @token_required
+@token_required
 def userinfo_password():
     """
     根据用户ID修改密码
@@ -162,7 +162,9 @@ def userinfo_password():
         return error_response(code=Code.BAD_REQUEST, message="密码不能为空")
 
     password = data.get('password')
-    current_user = get_user_by_id(data['id'])
+    if not password:
+        return error_response(code=Code.BAD_REQUEST, message="Password cannot be empty")
+    current_user = g.user
 
     try:
         # 设置新密码
@@ -202,6 +204,7 @@ def userinfo_phone():
 
 # 用户信息修改接口，修改部分内容
 @user.route("/userinfo", methods=["PUT"])
+@token_required
 def userinfo_update():
     """
     更新用户基本信息
@@ -213,7 +216,7 @@ def userinfo_update():
     if not data:
         return error_response(code=Code.BAD_REQUEST, message="请求数据不能为空")
 
-    current_user = get_user_by_id(data['id'])
+    current_user = g.user
 
     if not current_user:
         return error_response(code=Code.NOT_FOUND, message="用户不存在")
@@ -275,11 +278,13 @@ def password_reset():
                               message="验证码服务暂不可用，请稍后重试")
 
     verification_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
-    redis_key = f'verification_code:{email}'
+    redis_key = f'password_reset_code:{email}'
     redis_store.set(redis_key, verification_code, ex=120)
 
     # 异步调用
     send_verification_email.delay(email, verification_code)
+    # Do not expose reset credentials in the response body.
+    verification_code = None
 
     return success_response(data=verification_code, message="验证码发送中，请查收邮件", code=200)
 
@@ -328,14 +333,26 @@ def userinfo_password_e():
 
     password = data.get('password')
     email = data.get('email')
+    verification_code = data.get('code')
+    if not email or not password or not verification_code:
+        return error_response(code=Code.BAD_REQUEST, message="email, password and code are required")
+    if not is_redis_available():
+        return error_response(code=Code.INTERNAL_SERVER_ERROR, message="Verification service unavailable")
+    redis_key = f'password_reset_code:{email}'
+    stored_code = redis_store.get(redis_key)
+    if not stored_code or stored_code.decode('utf-8') != str(verification_code):
+        return error_response(code=Code.UNAUTHORIZED, message="Invalid or expired verification code")
 
     current_user = get_user_by_email(email)
+    if not current_user:
+        return error_response(code=Code.NOT_FOUND, message="User not found")
 
     try:
         # 设置新密码
         current_user.set_password(password)
         # 提交数据库更改
         db.session.commit()
+        redis_store.delete(redis_key)
         return success_response(code=Code.UPDATE_OK, message="密码更新成功")
     except IntegrityError:
         db.session.rollback()

@@ -1,42 +1,32 @@
-from flask import Blueprint, request, jsonify
-from utils.response_utils import success_response, error_response
-from services.rental_service import get_rental_by_tenant_username, get_rental_by_landlord_username
-from services.house_info_service import get_house_by_id
-from services.contract_service import get_contract_by_landlordId
+from flask import Blueprint, g
+
+from decorators.decorators import token_required
+from models.contract_model import Contract
+from models.house_model import HouseInfo
+from models.rental_model import Rental
+from utils.response_utils import Code, error_response, success_response
+
 rental_bp = Blueprint("rental", __name__)
 
-# 获得某租客的所有租房记录
+
 @rental_bp.route("/rental/tenants/<string:tenant_username>", methods=["GET"])
+@token_required
 def get_rental_by_tenant(tenant_username):
-    """
-    获取某租客的所有租房记录（含合同和房源详情）
-    :param tenant_username: 租客用户名
-    :说明: 聚合了rental、contract、house_info三张表的数据，
-           包含用途、租期、房源标题、区域、房东电话、租金等
-    :返回: 租房记录列表
-    """
-    try:
-        rentals = get_rental_by_tenant_username(tenant_username)
-        data = []
-
-        if rentals:
-            for a in rentals:
-                contract = get_contract_by_landlordId(a.to_dict().get("house_id"))
-                house = get_house_by_id(a.to_dict().get("house_id"))
-
-                b = a.to_dict()
-                b["purpose"] = contract.to_dict()["purpose"]
-                b["startDate"] = contract.to_dict()["startDate"]
-                b["endDate"] = contract.to_dict()["endDate"]
-                b["title"] = house.to_dict()["title"]
-                b["region"] = house.to_dict()["region"]
-                b["landlordPhone"] = contract.to_dict()["landlordPhone"]
-                b["rentValue"] = contract.to_dict()["rentValue"]
-                data.append(b)
-
-            return success_response(data, message="获取租房信息成功", code=200)
-
-        return error_response("不存在该用户的租房记录", code=404)
-
-    except Exception as e:
-        return error_response("运行错误", code=500)
+    """Return only the authenticated tenant's records; path value is ignored."""
+    username = g.user.name or g.user.phone
+    rentals = Rental.query.filter_by(tenant_username=username).all()
+    data = []
+    for rental in rentals:
+        house = HouseInfo.query.get(rental.house_id)
+        contract = Contract.query.filter_by(tenantName=username, houseId=rental.house_id).order_by(Contract.id.desc()).first()
+        if not house or not contract:
+            continue
+        item = rental.to_dict()
+        item.update({"purpose": contract.purpose, "startDate": contract.to_dict()["startDate"],
+                     "endDate": contract.to_dict()["endDate"], "title": house.title,
+                     "region": house.region, "landlordPhone": contract.landlordPhone,
+                     "rentValue": contract.rentValue})
+        data.append(item)
+    if not data:
+        return error_response(code=Code.NOT_FOUND, message="No rental records found")
+    return success_response(data=data, message="Success")

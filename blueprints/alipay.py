@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, redirect, current_app, session
+from flask import Blueprint, request, jsonify, redirect, current_app, session, g
 from exts.alipay_client import AlipayClient
 from exts.alipay import Alipay   # 仅用来读取常量
 from utils.response_utils import success_response, error_response
@@ -8,12 +8,15 @@ import jwt
 from datetime import datetime, timedelta
 from exts.db import db
 from urllib.parse import quote
+from decorators.decorators import token_required
+from models.contract_model import Contract
 
 alipay_bp = Blueprint("alipay", __name__, url_prefix="/api/alipay")
 client = AlipayClient()
 
 
 @alipay_bp.post("/pay")
+@token_required
 def pay():
     """前端调用此接口，生成跳转到支付宝收银台的 URL"""
     payload = request.get_json(force=True)
@@ -23,6 +26,11 @@ def pay():
 
     if not all([out_trade_no, total_amount]):
         return error_response(code=400, message="缺少参数")
+
+    contract = db.session.get(Contract, payload.get("contract_id"))
+    if not contract or contract.tenantId != str(g.user.id):
+        return error_response(code=403, message="Invalid contract")
+    total_amount = contract.rentValue
 
     try:
         pay_url = client.generate_payment_url(
@@ -92,5 +100,3 @@ def verify_return():
             "error": str(e),
             "trace": repr(e)
         }), 500
-
-
