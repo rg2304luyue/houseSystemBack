@@ -1,11 +1,4 @@
-# ============================================================
-# 链居 - Docker Compose 一键编排
-# 启动: docker compose up -d --build
-# 停止: docker compose down
-# ============================================================
-
 services:
-  # ---- Redis 缓存 + Celery 消息队列 ----
   redis:
     image: redis:7-alpine
     container_name: house_redis
@@ -18,9 +11,8 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
 
-  # ---- MySQL 数据库 ----
   mysql:
     image: mysql:8.0
     container_name: house_mysql
@@ -33,83 +25,75 @@ services:
       MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
     volumes:
       - mysql_data:/var/lib/mysql
+      # MySQL executes this only when mysql_data is empty. The dump is already
+      # stamped at the current Alembic head; existing volumes are never imported.
+      - ./flaskhousesystem.sql:/docker-entrypoint-initdb.d/001-flaskhousesystem.sql:ro
     restart: always
-    command: --default-time_zone='+8:00'
+    command: --default-time_zone=+08:00
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h localhost -u root --silent"]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
-  # ---- 后端 Flask 服务 (Gunicorn) ----
+  migrate:
+    build: .
+    image: house-backend:latest
+    container_name: house_migrate
+    command: python -m alembic upgrade head
+    environment: &backend_environment
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the environment or .env file}
+      DEBUG: "false"
+      PAYMENT_MOCK_ENABLED: "false"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
+      QQ_SMTP_EMAIL: ${QQ_SMTP_EMAIL:-}
+      QQ_SMTP_AUTH_CODE: ${QQ_SMTP_AUTH_CODE:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
   backend:
     build: .
+    image: house-backend:latest
     container_name: house_backend
     ports:
-      - "5000:5000"
+      - "8000:8000"
     volumes:
       - ./exts/app_private_key.txt:/app/exts/app_private_key.txt:ro
       - ./exts/alipay_public_key.txt:/app/exts/alipay_public_key.txt:ro
     environment:
-      FLASK_ENV: production
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER:-root}
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
-      QQ_SMTP_EMAIL: ${QQ_SMTP_EMAIL}
-      QQ_SMTP_AUTH_CODE: ${QQ_SMTP_AUTH_CODE}
+      <<: *backend_environment
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-4}
     depends_on:
-      mysql:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  # ---- Celery Worker（异步任务：邮件发送等）----
-  celery:
-    build: .
-    container_name: house_celery
-    command: celery -A app:celery worker --loglevel=info --concurrency=4
-    volumes:
-      - ./exts/app_private_key.txt:/app/exts/app_private_key.txt:ro
-      - ./exts/alipay_public_key.txt:/app/exts/alipay_public_key.txt:ro
-    environment:
-      FLASK_ENV: production
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
-      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
-      MYSQL_HOST: mysql
-      MYSQL_PORT: 3306
-      MYSQL_USER: ${MYSQL_USER:-root}
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DB: ${MYSQL_DATABASE:-flaskhousesystem}
-      QQ_SMTP_EMAIL: ${QQ_SMTP_EMAIL}
-      QQ_SMTP_AUTH_CODE: ${QQ_SMTP_AUTH_CODE}
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-    restart: always
-
-  # ---- 前端 Nginx + Vue SPA ----
   frontend:
     build: ../houseSystemFront-Ylfmoonn
     container_name: house_frontend
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: always
 
-# ---- 数据持久化 ----
 volumes:
   redis_data:
   mysql_data:

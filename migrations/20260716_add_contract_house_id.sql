@@ -1,4 +1,9 @@
--- Run once before deploying the contract/rental association fix.
+-- LEGACY / DO NOT RUN on databases imported from flaskhousesystem.sql or
+-- managed by Alembic. The main dump is already stamped at
+-- 004_unique_payment_trade_no and includes contract.houseId.
+-- This file is retained only to document the pre-Alembic houseId migration.
+
+-- Historical implementation follows; it must not be executed on current databases.
 ALTER TABLE contract ADD COLUMN houseId INT NULL;
 CREATE INDEX ix_contract_houseId ON contract (houseId);
 

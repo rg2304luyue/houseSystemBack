@@ -894,4 +894,127 @@ INSERT INTO `user_info` VALUES (23, NULL, '$2b$12$Pl9JhD1ItiE1jR7GtXacMO/5dK7aQd
 INSERT INTO `user_info` VALUES (24, NULL, '$2b$12$Tg2ooDCuJZRgQkP1PamSgu6OZGCIPYlZ8dtmlVpge2XzuGVox2aFu', 'test_3d4e351b@autotest.com', '19938904711', NULL, NULL, NULL, NULL, 1, NULL);
 INSERT INTO `user_info` VALUES (25, NULL, '$2b$12$Np1r1lEt.ujmx.i56SgBIOux/yh/K9BaDs8YC/RJlkUJhed5Emple', 'test_cff047ca@autotest.com', '19923803170', NULL, NULL, NULL, NULL, 1, NULL);
 
+-- ----------------------------
+-- FastAPI schema sync (Alembic head: 006_ai_agent_runs)
+-- Keep this section after all legacy INSERT statements so their positional
+-- value counts remain valid. New identifiers are nullable because historical
+-- names and phone numbers are not globally unique.
+-- ----------------------------
+ALTER TABLE `contract`
+  ADD COLUMN `payment_status` varchar(20) NULL DEFAULT 'pending' COMMENT 'Payment state: pending/paid/cancelled/expired',
+  ADD COLUMN `payment_trade_no` varchar(64) NULL DEFAULT NULL COMMENT 'Alipay out_trade_no for idempotency',
+  ADD COLUMN `paid_at` datetime NULL DEFAULT NULL COMMENT 'Timestamp when payment was confirmed',
+  ADD COLUMN `expires_at` datetime NULL DEFAULT NULL;
+
+CREATE UNIQUE INDEX `ix_contract_payment_trade_no`
+  ON `contract` (`payment_trade_no` ASC);
+CREATE INDEX `ix_contract_expires_at`
+  ON `contract` (`expires_at` ASC);
+
+ALTER TABLE `house_info`
+  ADD COLUMN `landlord_id` int NULL DEFAULT NULL;
+CREATE INDEX `ix_house_info_landlord_id`
+  ON `house_info` (`landlord_id` ASC);
+
+ALTER TABLE `rental`
+  ADD COLUMN `contract_id` int NULL DEFAULT NULL,
+  ADD COLUMN `tenant_id` int NULL DEFAULT NULL,
+  ADD COLUMN `landlord_id` int NULL DEFAULT NULL;
+CREATE UNIQUE INDEX `uq_rental_contract_id`
+  ON `rental` (`contract_id` ASC);
+CREATE INDEX `ix_rental_tenant_id`
+  ON `rental` (`tenant_id` ASC);
+CREATE INDEX `ix_rental_landlord_id`
+  ON `rental` (`landlord_id` ASC);
+
+-- Conservative legacy ownership backfill: only unique identities are linked.
+UPDATE `house_info` AS h
+JOIN (
+  SELECT `phone`, MIN(`id`) AS `user_id`
+  FROM `user_info`
+  WHERE `phone` IS NOT NULL AND `phone` <> ''
+  GROUP BY `phone`
+  HAVING COUNT(*) = 1
+) AS u ON u.`phone` = h.`phone_num`
+SET h.`landlord_id` = u.`user_id`
+WHERE h.`landlord_id` IS NULL;
+
+UPDATE `rental` AS r
+JOIN (
+  SELECT `name`, MIN(`id`) AS `user_id`
+  FROM `user_info`
+  WHERE `name` IS NOT NULL AND `name` <> ''
+  GROUP BY `name`
+  HAVING COUNT(*) = 1
+) AS u ON u.`name` = r.`tenant_username`
+SET r.`tenant_id` = u.`user_id`
+WHERE r.`tenant_id` IS NULL;
+
+UPDATE `rental` AS r
+JOIN `house_info` AS h ON h.`id` = r.`house_id`
+SET r.`landlord_id` = h.`landlord_id`
+WHERE r.`landlord_id` IS NULL AND h.`landlord_id` IS NOT NULL;
+
+-- Historical contract data is ambiguous, so rental.contract_id is not guessed.
+ALTER TABLE `channel`
+  ADD COLUMN `tenant_id` int NULL,
+  ADD COLUMN `landlord_id` int NULL,
+  ADD INDEX `ix_channel_tenant_id` (`tenant_id`),
+  ADD INDEX `ix_channel_landlord_id` (`landlord_id`);
+
+ALTER TABLE `message`
+  ADD COLUMN `sender_id` int NULL,
+  ADD COLUMN `receiver_id` int NULL,
+  ADD INDEX `ix_message_sender_id` (`sender_id`),
+  ADD INDEX `ix_message_receiver_id` (`receiver_id`);
+
+UPDATE `channel` AS target
+JOIN (SELECT `name`, MIN(`id`) AS user_id FROM `user_info` WHERE `name` IS NOT NULL AND `name` <> '' GROUP BY `name` HAVING COUNT(*) = 1) AS users
+  ON users.`name` = target.`tenant_username`
+SET target.`tenant_id` = users.user_id;
+UPDATE `channel` AS target
+JOIN (SELECT `name`, MIN(`id`) AS user_id FROM `user_info` WHERE `name` IS NOT NULL AND `name` <> '' GROUP BY `name` HAVING COUNT(*) = 1) AS users
+  ON users.`name` = target.`landlord_username`
+SET target.`landlord_id` = users.user_id;
+UPDATE `message` AS target
+JOIN (SELECT `name`, MIN(`id`) AS user_id FROM `user_info` WHERE `name` IS NOT NULL AND `name` <> '' GROUP BY `name` HAVING COUNT(*) = 1) AS users
+  ON users.`name` = target.`sender_username`
+SET target.`sender_id` = users.user_id;
+UPDATE `message` AS target
+JOIN (SELECT `name`, MIN(`id`) AS user_id FROM `user_info` WHERE `name` IS NOT NULL AND `name` <> '' GROUP BY `name` HAVING COUNT(*) = 1) AS users
+  ON users.`name` = target.`receiver_username`
+SET target.`receiver_id` = users.user_id;
+
+DROP TABLE IF EXISTS `ai_agent_run`;
+CREATE TABLE `ai_agent_run` (
+  `request_id` varchar(36) NOT NULL,
+  `user_id` int NOT NULL,
+  `session_id` int NOT NULL,
+  `user_message_id` int NOT NULL,
+  `assistant_message_id` int NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'running',
+  `cancel_requested` tinyint(1) NOT NULL DEFAULT 0,
+  `error_code` varchar(50) NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`request_id`),
+  UNIQUE KEY `uq_ai_agent_run_user_message_id` (`user_message_id`),
+  UNIQUE KEY `uq_ai_agent_run_assistant_message_id` (`assistant_message_id`),
+  KEY `ix_ai_agent_run_user_id` (`user_id`),
+  KEY `ix_ai_agent_run_session_id` (`session_id`),
+  KEY `ix_ai_agent_run_status` (`status`),
+  CONSTRAINT `fk_ai_agent_run_user` FOREIGN KEY (`user_id`) REFERENCES `user_info` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ai_agent_run_session` FOREIGN KEY (`session_id`) REFERENCES `chat_session` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ai_agent_run_user_message` FOREIGN KEY (`user_message_id`) REFERENCES `chat_message` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ai_agent_run_assistant_message` FOREIGN KEY (`assistant_message_id`) REFERENCES `chat_message` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+DROP TABLE IF EXISTS `alembic_version`;
+CREATE TABLE `alembic_version` (
+  `version_num` varchar(32) NOT NULL,
+  PRIMARY KEY (`version_num`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+INSERT INTO `alembic_version` (`version_num`)
+VALUES ('006_ai_agent_runs');
+
 SET FOREIGN_KEY_CHECKS = 1;

@@ -38,9 +38,8 @@ class Alipay:
     ALIPAY_PUBLIC_KEY = ALIPAY_PUBLIC_KEY1
     APP_PRIVATE_KEY = APP_PRIVATE_KEY1
     GATEWAY = 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
-    RETURN_URL = 'http://localhost:5000/api/alipay/return'    # 支付宝同步回跳（后端验证）
-    NOTIFY_URL = 'http://localhost:5000/api/alipay/notify'     # 支付宝异步回调（后端）
+    RETURN_URL = 'http://localhost:4399/alipay/payment-result'
+    NOTIFY_URL = 'http://localhost:8000/api/v1/payments/notify'
     FRONTEND_URL = 'http://localhost:4399'                     # 前端地址
-    CALLBACK_URL = 'http://localhost:5000/api/alipay/oauth_callback'
 
 # print(APP_PRIVATE_KEY1+"\n"+ALIPAY_PUBLIC_KEY1)

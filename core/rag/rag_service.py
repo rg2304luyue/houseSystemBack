@@ -7,7 +7,7 @@ from langchain_core.output_parsers import StrOutputParser
 from core.rag.vector_store import VectorStoreService
 from core.agent_utils.prompt_loader import load_rag_prompt
 from langchain_core.prompts import PromptTemplate
-from core.agent_model.factor import chat_model
+from core.agent_model.factor import get_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class RagSummarizeService(object):
         self.retriever = self.vector_store.get_retriever()
         self.prompt_text = load_rag_prompt()
         self.prompt_template = PromptTemplate.from_template(self.prompt_text)
-        self.model = chat_model
+        self.model = get_chat_model()
         self.chain = self._init_chain()
 
     def _init_chain(self):

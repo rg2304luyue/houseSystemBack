@@ -1,5 +1,8 @@
-# exts/alipay_client.py
-from exts.alipay import Alipay          # 你的常量/密钥配置文件
+import base64
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
+from exts.alipay import Alipay
 from alipay.aop.api.AlipayClientConfig import AlipayClientConfig
 from alipay.aop.api.DefaultAlipayClient import DefaultAlipayClient
 from alipay.aop.api.domain.AlipayTradePagePayModel import AlipayTradePagePayModel
@@ -10,13 +13,11 @@ from alipay.aop.api.request.AlipayUserInfoShareRequest import AlipayUserInfoShar
 
 class AlipayClient:
     def __init__(self):
-        # 1) 先组装配置对象
         config = AlipayClientConfig()
-        config.server_url         = Alipay.GATEWAY
-        config.app_id             = Alipay.APP_ID
-        config.app_private_key    = Alipay.APP_PRIVATE_KEY
-        config.alipay_public_key  = Alipay.ALIPAY_PUBLIC_KEY
-        # 2) 只把 config 放进客户端
+        config.server_url = Alipay.GATEWAY
+        config.app_id = Alipay.APP_ID
+        config.app_private_key = Alipay.APP_PRIVATE_KEY
+        config.alipay_public_key = Alipay.ALIPAY_PUBLIC_KEY
         self.client = DefaultAlipayClient(alipay_client_config=config)
 
     def generate_payment_url(self, out_trade_no, total_amount, subject):
@@ -31,25 +32,50 @@ class AlipayClient:
         request.notify_url = Alipay.NOTIFY_URL
         request.return_url = Alipay.RETURN_URL
 
-        # 电脑网站支付（GET 跳转收银台）
         return self.client.page_execute(request, http_method="GET")
 
     def verify(self, data: dict, signature: str) -> bool:
-        """支付宝异步/同步回传验签（沙箱模式直接返回 True）"""
-        return True
+        """Verify Alipay callback signature using RSA-SHA256.
+
+        Performs RSA signature verification using the Alipay public key.
+        Local development uses the authenticated ``mock-confirm`` endpoint;
+        public callbacks are never allowed to bypass signature verification.
+        """
+        try:
+            # Build the sign content (sorted params, excluding sign/sign_type)
+            sign_content = '&'.join(
+                f'{k}={v}' for k, v in sorted(data.items())
+                if v is not None and v != ''
+            )
+
+            # Load Alipay public key
+            public_key = serialization.load_pem_public_key(
+                Alipay.ALIPAY_PUBLIC_KEY.encode('utf-8'),
+                backend=default_backend()
+            )
+
+            # Decode the base64 signature
+            signature_bytes = base64.b64decode(signature)
+
+            # Verify using RSA-SHA256
+            public_key.verify(
+                signature_bytes,
+                sign_content.encode('utf-8'),
+                padding.PKCS1v15(),
+                hashes.SHA256()
+            )
+            return True
+        except Exception:
+            return False
 
     def get_auth_token(self, auth_code: str) -> dict:
-        """根据 auth_code 换取 access_token"""
         request = AlipaySystemOauthTokenRequest()
         request.grant_type = "authorization_code"
         request.code = auth_code
-
         response = self.client.execute(request)
         return response.to_dict()
 
     def get_user_info(self, access_token: str) -> dict:
-        """根据 access_token 获取用户信息"""
         request = AlipayUserInfoShareRequest()
         response = self.client.execute(request, auth_token=access_token)
         return response.to_dict()
-

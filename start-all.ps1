@@ -4,16 +4,16 @@
 
 .EXAMPLE
     .\start-all.ps1
-    Starts the complete Docker environment in the background.
+    Opens separate local development terminals for FastAPI and Vite.
 
 .EXAMPLE
     .\start-all.ps1 -Mode Dev
-    Opens separate local development terminals for Flask and Vite.
+    Opens separate local development terminals for FastAPI and Vite.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Docker', 'Dev')]
-    [string]$Mode = 'Docker'
+    [ValidateSet('Dev')]
+    [string]$Mode = 'Dev'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,44 +24,34 @@ if (-not (Test-Path (Join-Path $frontendRoot 'package.json'))) {
     throw "Frontend project was not found: $frontendRoot"
 }
 
-if ($Mode -eq 'Docker') {
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        throw 'Docker was not found. Install and start Docker Desktop, or run .\start-all.ps1 -Mode Dev.'
-    }
-
-    Push-Location $backendRoot
-    try {
-        docker compose up -d --build
-    }
-    finally {
-        Pop-Location
-    }
-
-    Write-Host ''
-    Write-Host 'System started.' -ForegroundColor Green
-    Write-Host 'Frontend: http://localhost'
-    Write-Host 'Backend:  http://localhost:5000'
-    Write-Host 'Stop it with: docker compose down (from the backend folder).'
-    exit 0
-}
-
-foreach ($command in @('python', 'npm')) {
-    if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-        throw "Required command '$command' was not found."
-    }
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "Required command 'npm' was not found."
 }
 
 $pythonExecutable = Join-Path $backendRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path $pythonExecutable)) {
-    $pythonExecutable = 'python'
+    throw "Backend virtual environment was not found: $pythonExecutable"
 }
-$backendCommand = "Set-Location -LiteralPath '$backendRoot'; & '$pythonExecutable' app.py"
-$frontendCommand = "Set-Location -LiteralPath '$frontendRoot'; npm run dev -- --host 0.0.0.0"
+
+Write-Host 'Applying database migrations...' -ForegroundColor Cyan
+Push-Location $backendRoot
+try {
+    & $pythonExecutable -m alembic upgrade head
+    if ($LASTEXITCODE -ne 0) {
+        throw "Database migration failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
+
+$backendCommand = "Set-Location -LiteralPath '$backendRoot'; & '$pythonExecutable' -m uvicorn app.main:app --reload --port 8000"
+$frontendCommand = "Set-Location -LiteralPath '$frontendRoot'; npm run dev"
 
 Start-Process powershell.exe -ArgumentList '-NoExit', '-Command', $backendCommand | Out-Null
 Start-Process powershell.exe -ArgumentList '-NoExit', '-Command', $frontendCommand | Out-Null
 
 Write-Host ''
 Write-Host 'Development servers are starting in two new terminals.' -ForegroundColor Green
-Write-Host 'Frontend is normally available at http://localhost:5173'
-Write-Host 'Backend is normally available at http://localhost:5000'
+Write-Host 'Frontend is normally available at http://localhost:4399'
+Write-Host 'Backend is normally available at http://localhost:8000'

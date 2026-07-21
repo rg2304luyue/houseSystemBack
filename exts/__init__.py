@@ -1,2 +1,1 @@
-from .db import db
-from .cors import cors
+"""Payment integration package retained by the FastAPI backend."""

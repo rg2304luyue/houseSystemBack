@@ -2,7 +2,7 @@ import os
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from core.agent_utils.config_handler import chroma_config
-from core.agent_model.factor import embedding_model
+from core.agent_model.factor import get_embedding_model
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from core.agent_utils.path_tool import get_abs_path
 from core.agent_utils.file_handler import pdf_loader, txt_loader, listdir_with_allowed_type, get_file_md5_hex
@@ -13,7 +13,7 @@ class VectorStoreService:
     def __init__(self):
         self.vector_store = Chroma(
             collection_name=chroma_config["collection_name"],
-            embedding_function=embedding_model,
+            embedding_function=get_embedding_model(),
             persist_directory=get_abs_path(chroma_config["persist_directory"]),
         )
 
