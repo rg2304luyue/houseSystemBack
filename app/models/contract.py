@@ -1,5 +1,6 @@
 """ContractModel — ported from Flask-SQLAlchemy to SQLAlchemy 2.x DeclarativeBase."""
 from typing import Optional
+from datetime import datetime
 from sqlalchemy import Integer, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
@@ -11,8 +12,8 @@ class Contract(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     rentValue: Mapped[str] = mapped_column(String(255))
     purpose: Mapped[str] = mapped_column(String(255))
-    startDate: Mapped[str] = mapped_column(DateTime)
-    endDate: Mapped[str] = mapped_column(DateTime)
+    startDate: Mapped[datetime] = mapped_column(DateTime)
+    endDate: Mapped[datetime] = mapped_column(DateTime)
     landlordName: Mapped[str] = mapped_column(String(255))
     landlordId: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     landlordPhone: Mapped[str] = mapped_column(String(255))
@@ -20,14 +21,14 @@ class Contract(Base):
     tenantId: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tenantPhone: Mapped[str] = mapped_column(String(255))
     formattedRent: Mapped[str] = mapped_column(String(255))
-    currentDate: Mapped[str] = mapped_column(DateTime)
+    currentDate: Mapped[datetime] = mapped_column(DateTime)
     houseId: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     # Payment tracking (added for P1 payment fix)
     payment_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="pending",
                                                            server_default="pending")
     payment_trade_no: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
-    paid_at: Mapped[Optional[str]] = mapped_column(DateTime, nullable=True)
-    expires_at: Mapped[Optional[str]] = mapped_column(DateTime, nullable=True, index=True)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
     def to_dict(self):
         return {

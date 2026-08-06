@@ -137,22 +137,31 @@ def get_popular_houses(limit: int = 5) -> str:
 
 @lru_cache(maxsize=1)
 def _rag_service():
-    from core.rag.rag_service import RagSummarizeService
+    from core.rag.retrieval_service import RagRetrievalService
 
-    return RagSummarizeService()
+    return RagRetrievalService()
+
+
+def _rental_knowledge_payload(query: str) -> str:
+    cleaned_query = query.strip()[:1000]
+    if not cleaned_query:
+        return _json({"query": "", "grounded": False, "chunks": []})
+    try:
+        return _json(_rag_service().retrieve(cleaned_query).to_dict())
+    except Exception:
+        logger.exception("Rental knowledge retrieval failed")
+        return _json({
+            "query": cleaned_query,
+            "grounded": False,
+            "chunks": [],
+            "error": "knowledge_base_unavailable",
+        })
 
 
 @tool
 def search_rental_knowledge(query: str) -> str:
-    """Search the private knowledge base for rental processes, contracts, and general advice."""
-    cleaned_query = query.strip()[:1000]
-    if not cleaned_query:
-        return "请提供需要检索的租房问题。"
-    try:
-        return str(_rag_service().rag_summarize(cleaned_query))[:12000]
-    except Exception:
-        logger.exception("Rental knowledge tool failed")
-        return "租房知识库暂时不可用，请稍后重试。"
+    """Return scored evidence. Cite chunks as [1], [2]; if grounded is false, do not answer from memory."""
+    return _rental_knowledge_payload(query)
 
 
 @tool

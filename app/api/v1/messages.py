@@ -7,6 +7,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.time import utc_now_naive
 from app.db.session import get_db
 from app.models.channel import ChannelModel
 from app.models.message import MessageModel
@@ -103,7 +104,7 @@ def send_message(
             landlord_username=receiver,
             tenant_id=current_user.id,
             landlord_id=receiver_user.id,
-            timestamp=datetime.utcnow(),
+            timestamp=utc_now_naive(),
         )
         db.add(channel)
         db.flush()
@@ -114,7 +115,7 @@ def send_message(
         sender_id=current_user.id,
         receiver_id=receiver_user.id,
         channel_id=channel.channel_id,
-        timestamp=datetime.utcnow(),
+        timestamp=utc_now_naive(),
     )
     db.add(message)
     db.commit()

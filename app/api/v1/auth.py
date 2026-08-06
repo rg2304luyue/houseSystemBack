@@ -14,6 +14,7 @@ from app.models.user import UserModel
 from app.core.security import create_access_token
 from app.core.redis import get_redis, is_redis_available
 from app.core.config import settings
+from app.core.time import utc_now_naive
 from app.schemas.common import APIResponse
 from app.services.email import send_login_verification_email
 
@@ -113,7 +114,7 @@ def send_email_code(
     if not redis_client.set(last_send_key, "1", ex=60, nx=True):
         raise HTTPException(status_code=429, detail="Please wait before requesting another code")
 
-    daily_key = f"email_login_daily_count:{email}:{datetime.utcnow():%Y%m%d}"
+    daily_key = f"email_login_daily_count:{email}:{utc_now_naive():%Y%m%d}"
     pipeline = redis_client.pipeline(transaction=True)
     pipeline.incr(daily_key)
     pipeline.expire(daily_key, 86400, nx=True)

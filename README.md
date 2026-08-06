@@ -5,6 +5,8 @@
 ## 本地技术栈
 
 - FastAPI + Uvicorn
+- Local RAG runbook: [RAG_OPERATIONS.md](RAG_OPERATIONS.md) (sync, rebuild,
+  evaluation gate, interrupted-rebuild recovery, local index backup and rollback)
 - SQLAlchemy 2 + MySQL
 - Alembic 数据库迁移
 - Redis（房源缓存，可选；不可用时自动回退）

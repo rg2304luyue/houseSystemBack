@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.main import app
+from app.core.time import utc_now_naive
 from app.api.v1.payments import _confirm_paid, _release_reservation, expire_payment
 from app.api.v1.users import ChangePasswordRequest, change_password, delete_user
 from app.api.v1.houses import HouseDetailRequest, _require_house_owner
@@ -256,7 +257,7 @@ def test_expire_payment_releases_an_overdue_reservation():
         tenantName="tenant",
         houseId=8,
         payment_status="pending",
-        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        expires_at=utc_now_naive() - timedelta(minutes=1),
         to_dict=lambda: {"id": 9, "payment_status": "expired"},
     )
     db = MagicMock()
@@ -354,6 +355,20 @@ def test_chat_stream_reports_ai_failure_without_opening_database(monkeypatch):
     assert '"type": "error"' in events[-1]
     assert "private provider failure" not in events[-1]
     session_factory.assert_not_called()
+
+
+def test_chat_stream_returns_sanitized_quota_message(monkeypatch):
+    from app.services.react_agent import AgentPublicError
+
+    def fail(_history):
+        raise AgentPublicError("DeepSeek 账户余额不足，请充值后重试。")
+
+    monkeypatch.setattr(react_agent, "stream_react_agent", fail)
+    events = list(chat_ai._stream_events(42, [{"role": "user", "content": "你好"}]))
+    serialized = "".join(events)
+
+    assert "DeepSeek 账户余额不足" in serialized
+    assert "AllocationQuota" not in serialized
 
 
 def test_chat_stream_preserves_cancelled_state_when_agent_fails(monkeypatch):

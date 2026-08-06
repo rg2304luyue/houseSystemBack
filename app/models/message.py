@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import Integer, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
+from app.core.time import utc_now_naive
 
 
 class MessageModel(Base):
@@ -12,7 +13,7 @@ class MessageModel(Base):
     content: Mapped[str] = mapped_column(String(500), comment="消息内容")
     sender_username: Mapped[str] = mapped_column(String(50), comment="发送者用户名")
     receiver_username: Mapped[str] = mapped_column(String(50), comment="接收者用户名")
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, comment="消息时间戳")
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, comment="消息时间戳")
     sender_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     receiver_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     channel_id: Mapped[int] = mapped_column(Integer)

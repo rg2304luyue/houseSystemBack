@@ -34,10 +34,14 @@ class Settings(BaseSettings):
     OSS_REGION: str = "cn-hangzhou"
     OSS_CNAME_URL: str | None = None
 
-    # ---- AI (DashScope) ----
+    # ---- AI chat (DeepSeek OpenAI-compatible API) ----
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    AI_CHAT_MODEL: str = "deepseek-v4-flash"
+
+    # ---- RAG embeddings (DashScope) ----
     DASHSCOPE_API_KEY: str = ""
-    AI_CHAT_MODEL: str = "qwen-plus"
-    AI_EMBEDDING_MODEL: str = "text-embedding-v3"
+    AI_EMBEDDING_MODEL: str = "qwen3.7-text-embedding"
 
     # ---- Gaode Maps ----
     GAODE_WEATHER_KEY: str = ""

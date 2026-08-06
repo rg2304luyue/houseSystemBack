@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.time import utc_now_naive
 from app.db.session import get_db
 from app.models.contract import Contract
 from app.models.house import HouseInfo
@@ -145,7 +146,7 @@ def create_lease(
 
     # ---- 6. Create a pending Contract and reserve the house atomically ----
     # Store reservation timestamps in UTC; expiry checks also use UTC.
-    now = datetime.utcnow()
+    now = utc_now_naive()
     formatted_rent = f"¥{submitted_rent}/月"
 
     contract = Contract(

@@ -580,6 +580,27 @@ INSERT INTO `house_info` VALUES (48, '合租·盘锦小区 2室1厅 南', '岳�
 INSERT INTO `house_info` VALUES (49, '整租·黄金一区 3室2厅 北', '天心', '泉塘', '黄金一区', 103, '北', '2室1厅1卫', 2400, '整租', '精装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/1e7e4c632f5948dd95829709a06a904e.jpg', '2025-05-15', NULL, '张先生', '13630278915', '10001');
 INSERT INTO `house_info` VALUES (50, '整租·桃花村 3室1厅 南北', '岳麓', '桃花村', '桃花村', 62, '南北', '2室1厅1卫', 1000, '整租', '简装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/385216b3a0474b7d98cfa5f367a11019.jpg', '2025-05-15', NULL, '张先生', '13630278915', '10001');
 INSERT INTO `house_info` VALUES (51, '整租·锦源小区 1室1厅 东西', '芙蓉', '树木岭', '锦源小区', 50, '东西', '2室1厅1卫', 800, '整租', '简装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/0e54185af1744ef0ab60029cb130b32c.jpg', '2025-05-15', 2, '张先生', '13630278915', '10001');
+-- Public rental snapshots collected on 2026-08-06 for teaching/demo use only.
+-- Source pages may contain unverified user submissions. Do not treat these rows as proof of ownership or current availability.
+INSERT INTO `house_info` (`id`, `title`, `region`, `block`, `community`, `area`, `direction`, `rooms`, `price`, `rent_type`, `decoration`, `subway`, `available`, `tag_new`, `image_url`, `publish_time`, `page_views`, `landlord`, `phone_num`, `house_num`) VALUES
+(110, '公开快照·恒达花园南苑 3室1厅 南', '芙蓉', '火车站', '恒达花园南苑', 80.6, '南', '3室1厅1卫', 1600, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-001'),
+(111, '公开快照·珑璟学府 4室2厅 南', '芙蓉', '汽车东站', '珑璟学府', 120, '南', '4室2厅2卫', 2900, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-002'),
+(112, '公开快照·创世纪宫寓 2室1厅', '天心', '暮云', '创世纪宫寓', 93, NULL, '2室1厅', 2100, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-003'),
+(113, '公开快照·通泰梅岭苑 2室2厅', '天心', '铁道学院', '通泰梅岭苑', 104.49, NULL, '2室2厅1卫', 2600, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-004'),
+(114, '公开快照·长沙恒大文化旅游城 4室2厅', '岳麓', '洋湖湿地公园', '长沙恒大文化旅游城', 127.3, NULL, '4室2厅', 2500, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-005'),
+(115, '公开快照·麓谷小镇 3室2厅', '岳麓', '麓谷', '麓谷小镇', 87.23, NULL, '3室2厅', 1500, '整租', '精装', 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-006'),
+(116, '公开快照·君悦香邸 3室2厅', '开福', '新河三角洲', '君悦香邸', 120.38, NULL, '3室2厅', 2800, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-007'),
+(117, '公开快照·恒大雅苑 3室2厅', '开福', '广电中心', '恒大雅苑', 90, NULL, '3室2厅1卫', 2400, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-008'),
+(118, '公开快照·城市山水豪园 2室2厅', '雨花', '武广新城', '城市山水豪园', 93, NULL, '2室2厅', 1700, '整租', '精装', 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-009'),
+(119, '公开快照·国欣向荣府 4室2厅', '雨花', '树木岭', '国欣向荣府', 134, NULL, '4室2厅', 3300, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-010'),
+(120, '公开快照·润和滨江府二期 2室1厅', '望城', '金星北', '润和滨江府二期', 45, NULL, '2室1厅', 1700, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-011'),
+(121, '公开快照·富兴悦府 4室2厅', '望城', '普瑞大道', '富兴悦府', 130, NULL, '4室2厅', 2700, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-012'),
+(122, '公开快照·绿色金典 3室2厅', '长沙县', '长沙县', '绿色金典', 99.11, NULL, '3室2厅', 1850, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-013'),
+(123, '公开快照·融创会展上东区二区 3室2厅', '长沙县', '会展片区', '融创会展上东区二区', 107, NULL, '3室2厅2卫', 2500, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-014'),
+(124, '公开快照·蓝色港湾 1室0厅 东', '宁乡', '新城区', '蓝色港湾', 40, '东', '1室0厅1卫', 600, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-015'),
+(125, '公开快照·湘核华府 3室2厅 南北', '宁乡', '老城区', '湘核华府', 136, '南北', '3室2厅2卫', 1600, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-016'),
+(126, '公开快照·浏阳恒大华府 3室2厅 东南', '浏阳', '白沙东路', '浏阳恒大华府', 108, '东南', '3室2厅', 1300, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-017'),
+(127, '公开快照·浏阳市工业品综合大市场 3室2厅', '浏阳', '浏阳城区', '浏阳市工业品综合大市场', 128, NULL, '3室2厅2卫', 1280, '整租', NULL, 0, 0, 0, NULL, NULL, 0, '公开房源样例', NULL, 'CS-PUBLIC-20260806-018');
 
 -- ----------------------------
 -- Table structure for log_entries

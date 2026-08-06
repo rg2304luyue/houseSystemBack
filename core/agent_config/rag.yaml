@@ -1,2 +1,1 @@
-chat_model_name: qwen3-max
-embedding_model_name: text-embedding-v4
+# Model names are configured by AI_CHAT_MODEL and AI_EMBEDDING_MODEL in .env.

@@ -1,10 +1,15 @@
-collection_name: agent
+collection_name: rental_knowledge_v2
 persist_directory: core/chroma_db
-k: 3
 data_path: data
-md5_hex_store: md5.text
+manifest_path: rag_state/index_manifest.json
 allow_knowledge_file_type: ["txt", "pdf"]
+recursive: true
+allow_empty_sync: false
 
-chunk_size: 200
-chunk_overlap: 20
-separators: ["\n\n", "\n", ".", "!", "?", "。", "！", "？", " ", ""]
+chunk_size: 500
+chunk_overlap: 60
+
+retrieval_k: 6
+relevance_score_threshold: 0.58
+max_context_chars: 8000
+separators_safe: ["\n\n", "\n", "\u3002", "\uff01", "\uff1f", ".", "!", "?", " ", ""]

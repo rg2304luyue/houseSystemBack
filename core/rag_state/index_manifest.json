@@ -1,0 +1,80 @@
+{
+  "collection": "rental_knowledge_v2",
+  "documents": {
+    "0ac2f731c13ffd2417630c4687fe75b6742357c87d4496bf11e6a322437bbb91": {
+      "chunk_ids": [
+        "27c5de99af96905eb68f8c9f29412efc4fc1ebd88d6a549d7544af7d27611174",
+        "c2b889c04bd8c9870cbcdd7150bd46d50649cb97c8b67d82a936763ba319dbbe"
+      ],
+      "content_hash": "94b0c3d0d40bc21805f5ae7814983a28ee03e6a43ec17519cc6c37a88d79aae4",
+      "source": "changsha_county_rentals.txt"
+    },
+    "0f8f2adeff255f414b03a34ce8920e389a60fc35c25776bfa633c26c6756f629": {
+      "chunk_ids": [
+        "88ee7998777a3dad9c7a4754906ed0a482fd2e2f5c5a54952535776f654edc20",
+        "305b1a8039d0562f3cf90a0058758dceb068c34f1b0bc4bb0125ef5247f5a21f"
+      ],
+      "content_hash": "22c68657b7802c2901659e0518188147475c61dfa8258ee14cc5f3832680c60e",
+      "source": "changsha_ningxiang_rentals.txt"
+    },
+    "249f1c94a7bc8aec566b68ce80ca7b7b92ebc6f7215bf1c1285145a75133eeb1": {
+      "chunk_ids": [
+        "d2eb62194707877adc4db8483cd8836aafac83a01925e9c663d5632c09f2db2e",
+        "eb5cfcb2315ac1f492e2739e11d0b551a9c6157a88ab84d08b9171e4463707a6"
+      ],
+      "content_hash": "8160e20b09c15c2d715f5cbaf169c56336498406e6ca739f854608f1f55a6a5e",
+      "source": "changsha_kaifu_rentals.txt"
+    },
+    "580454145f9f7afedb78e8535d7cf73622e90d7117829055c697d5c619bcac35": {
+      "chunk_ids": [
+        "8121ae45763990ef0877ca46fd325ce86337b43a24b45abef598a16a1e54339a",
+        "7b557330db8b26300ddec19961c7a24959d301934bb92becb99fb7c411f00743"
+      ],
+      "content_hash": "6e751d3be054bf9e26d9c08af7fa3ab4a106912bd1db82cd2b43e9267196432c",
+      "source": "changsha_yuhua_rentals.txt"
+    },
+    "6bdb7bc03305f16309226dd0f61d2403e868d082619e747656d69fd85bbc1dd7": {
+      "chunk_ids": [
+        "70faba4423b6b72541368a0593cdf98767d0d9ce6da37233b5bb59086b8f776c",
+        "8d4f9f7559ecca9e1f5a27c718dacb8c9d9986d2fe679add75e53253be4beadd"
+      ],
+      "content_hash": "70cadf7529c4a904c96fa975c1fcdb9569963acb047fc993931607093823781e",
+      "source": "changsha_wangcheng_rentals.txt"
+    },
+    "71b324495c29b9e2a24d6073ad6a92b428ea343b40be646ec4e3eb206f46c2b6": {
+      "chunk_ids": [
+        "6f1442954bb6b91171c45a2bc020473f416e745f2948b60d9e205d10875587c1",
+        "eaa8d704d4f122f92f0d60adc34319b09cfd375441e1564f557635e3c012a1de"
+      ],
+      "content_hash": "d2a7bc6aa7f589be689f802e64f3d40f6f949af11e19e639c31cac8b5d676349",
+      "source": "changsha_tianxin_rentals.txt"
+    },
+    "842066917daee2a9fd5422e9cd8baf1c3b8c2bfe7d9279fa41975c11219aa695": {
+      "chunk_ids": [
+        "bac8467a8c97e0296c574b279eb4e0965b545d97948bcb77d3af966a38eb70a9",
+        "1793c68447cb18a960519768a436ee68620ea4a972c569824c3cdbcf53193620"
+      ],
+      "content_hash": "52defa280b2ec6b9f299afeeeb19fdecb99579c327e5bca8f2439d11d1bc2864",
+      "source": "changsha_yuelu_rentals.txt"
+    },
+    "887433afac1ab69190ef888b49e784a0589d2d56bc9f0fcd0f56d8499d4c59d0": {
+      "chunk_ids": [
+        "9dc956de4d824fe7ec3093c73a67932027bc77386fde346b8c841cb62e4fb96e",
+        "1f3a9277fdbeb564b2fe97d2f2f087d608edc4d69ee9af13e6d7d0b129851337"
+      ],
+      "content_hash": "785605ac199773d6e146acca9eada605f34455bcb55683f86b2dd56ad03cde11",
+      "source": "changsha_liuyang_rentals.txt"
+    },
+    "b2c7eb541b762cd06d061e67113eb95ebbdc542d655b7b82780b8b04358d6fbb": {
+      "chunk_ids": [
+        "b18eb9f040e6b78973a7f5eb062a787272cd38c9fe6d313f87f726f06a6700b5",
+        "e3ea8d6dabd0f649f2e7452c8eb043dc4f4513ecbd4c8b3c0c6a27701287323e"
+      ],
+      "content_hash": "24e821e527e60b9af1f8d86b158ffda2ac9bec2a8853c05572f19d4538b71119",
+      "source": "changsha_furong_rentals.txt"
+    }
+  },
+  "index_signature": "f12104f3ce896f693fb9177ff1fa314f0846765f419d55b75ee3fc60535a3b6c",
+  "state": "ready",
+  "version": 1
+}

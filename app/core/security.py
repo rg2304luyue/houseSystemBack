@@ -4,6 +4,7 @@ import jwt
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 from app.core.config import settings
+from app.core.time import utc_now_naive
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -28,7 +29,7 @@ def create_access_token(user_id: int, phone: str | None = None,
         "phone": phone,
         "email": email,
         "type": user_type,
-        "exp": datetime.utcnow() + timedelta(hours=24),
+        "exp": utc_now_naive() + timedelta(hours=24),
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 

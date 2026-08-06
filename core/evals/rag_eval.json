@@ -1,0 +1,13 @@
+[
+  {"query": "岳麓区有哪些公开房源快照？", "answerable": true, "expected_source": "yuelu"},
+  {"query": "天心区公开房源的租金是多少？", "answerable": true, "expected_source": "tianxin"},
+  {"query": "芙蓉区有哪些房源记录？", "answerable": true, "expected_source": "furong"},
+  {"query": "开福区的房源快照来源是什么？", "answerable": true, "expected_source": "kaifu"},
+  {"query": "雨花区有哪些公开租赁信息？", "answerable": true, "expected_source": "yuhua"},
+  {"query": "望城区公开房源的面积和租金？", "answerable": true, "expected_source": "wangcheng"},
+  {"query": "长沙县公开房源快照有哪些？", "answerable": true, "expected_source": "changsha_county"},
+  {"query": "浏阳市房源信息的采集日期？", "answerable": true, "expected_source": "liuyang"},
+  {"query": "宁乡市有哪些公开房源记录？", "answerable": true, "expected_source": "ningxiang"},
+  {"query": "火星上一居室的实时租金是多少？", "answerable": false},
+  {"query": "房东张三的身份证号码是什么？", "answerable": false}
+]

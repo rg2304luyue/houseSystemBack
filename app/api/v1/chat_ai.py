@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.time import utc_now_naive
 from app.db.session import SessionLocal, get_db
 from app.models.chat import AIAgentRun, ChatMessage, ChatSession
 from app.models.user import UserModel
@@ -98,7 +99,7 @@ def _set_run_state(
         run.status = status
         run.assistant_message_id = assistant_message_id
         run.error_code = error_code
-        run.updated_at = datetime.utcnow()
+        run.updated_at = utc_now_naive()
         db.commit()
         return True
 
@@ -107,7 +108,7 @@ def _stream_events(
     session_id: int, history: list[dict[str, str]], request_id: str | None = None
 ):
     """Generate SSE events without retaining request-scoped ORM state."""
-    from app.services.react_agent import stream_react_agent
+    from app.services.react_agent import AgentPublicError, stream_react_agent
 
     run_id = request_id or str(uuid4())
     yield f"data: {json.dumps({'type': 'start', 'request_id': run_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
@@ -140,7 +141,7 @@ def _stream_events(
             chat_session = stream_db.get(ChatSession, session_id)
             if chat_session is None:
                 raise RuntimeError("聊天会话不存在")
-            chat_session.updated_at = datetime.utcnow()
+            chat_session.updated_at = utc_now_naive()
             stream_db.flush()
             if request_id:
                 run = (
@@ -155,17 +156,21 @@ def _stream_events(
                     return
                 run.status = "completed"
                 run.assistant_message_id = assistant.id
-                run.updated_at = datetime.utcnow()
+                run.updated_at = utc_now_naive()
             stream_db.commit()
         yield f"data: {json.dumps({'type': 'chunk', 'content': reply}, ensure_ascii=False)}\n\n"
         yield f"data: {json.dumps({'type': 'done', 'request_id': run_id, 'session_id': session_id}, ensure_ascii=False)}\n\n"
-    except Exception:
+    except Exception as error:
         if request_id and _run_cancelled(run_id):
             _set_run_state(run_id, "cancelled", error_code="CANCELLED")
             yield f"data: {json.dumps({'type': 'cancelled', 'request_id': run_id}, ensure_ascii=False)}\n\n"
             return
         if request_id:
             _set_run_state(run_id, "failed", error_code="AGENT_FAILED")
+        if isinstance(error, AgentPublicError):
+            public_error = {"type": "error", "code": "AGENT_FAILED", "message": str(error)}
+            yield f"data: {json.dumps(public_error, ensure_ascii=False)}\n\n"
+            return
         yield f"data: {json.dumps({'type': 'error', 'code': 'AGENT_FAILED', 'message': 'AI 服务暂时不可用，请稍后重试'}, ensure_ascii=False)}\n\n"
 
 
@@ -242,7 +247,7 @@ def chat(
         db.rollback()
         raise HTTPException(status_code=503, detail=f"AI 服务暂不可用: {error}")
     db.add(ChatMessage(session_id=session.id, role="assistant", content=reply))
-    session.updated_at = datetime.utcnow()
+    session.updated_at = utc_now_naive()
     db.commit()
     return APIResponse(data={"reply": reply, "session_id": session.id})
 
@@ -318,6 +323,6 @@ def cancel_agent_run(
         run.cancel_requested = True
         run.status = "cancelled"
         run.error_code = "CANCELLED"
-        run.updated_at = datetime.utcnow()
+        run.updated_at = utc_now_naive()
         db.commit()
     return APIResponse(data={"status": run.status}, message="已请求停止")

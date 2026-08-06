@@ -19,6 +19,7 @@ import random
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from app.core.time import utc_now_naive
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -444,7 +445,7 @@ def upload_avatar(
         "image/gif": ".gif",
     }
     ext = extension_by_type[avatar.content_type]
-    filename = f"{current_user.id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{ext}"
+    filename = f"{current_user.id}_{utc_now_naive().strftime('%Y%m%d%H%M%S')}{ext}"
     filepath = os.path.join(images_folder, filename)
 
     max_avatar_bytes = 5 * 1024 * 1024

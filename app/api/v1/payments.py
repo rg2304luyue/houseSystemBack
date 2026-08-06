@@ -22,6 +22,7 @@ import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from app.core.time import utc_now_naive
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
@@ -105,7 +106,7 @@ def _release_reservation(db: Session, contract: Contract, new_status: str) -> No
 
 def _expire_pending(db: Session, now: datetime | None = None) -> None:
     """Expire overdue reservations opportunistically on payment operations."""
-    now = now or datetime.utcnow()
+    now = now or utc_now_naive()
     overdue = db.query(Contract).filter(
         Contract.payment_status == "pending",
         Contract.expires_at.is_not(None),
@@ -139,10 +140,10 @@ def _confirm_paid(db: Session, contract: Contract) -> None:
             tenant_username=contract.tenantName,
             landlord_username=contract.landlordName,
             house_id=contract.houseId,
-            currentDate=datetime.utcnow(),
+        currentDate=utc_now_naive(),
         ))
     contract.payment_status = "paid"
-    contract.paid_at = datetime.utcnow()
+    contract.paid_at = utc_now_naive()
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +195,7 @@ def pay(
         )
     if contract.payment_status in ("cancelled", "expired"):
         raise HTTPException(status_code=409, detail="合同已取消或过期，请重新签约")
-    if contract.expires_at is not None and contract.expires_at <= datetime.utcnow():
+    if contract.expires_at is not None and contract.expires_at <= utc_now_naive():
         _release_reservation(db, contract, "expired")
         db.commit()
         invalidate_house_caches(contract.houseId)
@@ -352,7 +353,7 @@ async def alipay_notify(
     if contract.payment_status != "pending":
         logger.warning("Alipay notify received for a non-payable contract")
         return "failure"
-    if contract.expires_at is not None and contract.expires_at <= datetime.utcnow():
+    if contract.expires_at is not None and contract.expires_at <= utc_now_naive():
         try:
             _release_reservation(db, contract, "expired")
             db.commit()
@@ -455,7 +456,7 @@ def expire_payment(
         raise HTTPException(status_code=403, detail="无权操作该合同")
     if contract.payment_status != "pending":
         raise HTTPException(status_code=409, detail="合同当前不能过期释放")
-    if contract.expires_at is None or contract.expires_at > datetime.utcnow():
+    if contract.expires_at is None or contract.expires_at > utc_now_naive():
         raise HTTPException(status_code=409, detail="合同尚未过期")
     try:
         _release_reservation(db, contract, "expired")
