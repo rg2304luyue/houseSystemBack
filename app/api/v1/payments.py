@@ -22,22 +22,30 @@ import logging
 import uuid
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from typing import Literal
 from app.core.time import utc_now_naive
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_admin, get_current_user
 from app.db.session import get_db
 from app.models.contract import Contract
 from app.models.house import HouseInfo
 from app.models.rental import Rental
 from app.models.user import UserModel
-from app.api.v1.houses import invalidate_house_caches
+from app.services.house_cache import invalidate_house_caches
 from app.core.config import settings
 from app.schemas.common import APIResponse
+from app.services.occupancy import (
+    expired_pending_condition,
+    pending_contract_is_expired,
+    pending_deadline,
+    house_has_active_occupancy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,29 +98,27 @@ class PayResponse(BaseModel):
     out_trade_no: str
 
 
+class ReconciliationRequest(BaseModel):
+    action: Literal["accept_payment", "record_refund"]
+    note: str = Field(..., min_length=3, max_length=500)
+
+
 def _release_reservation(db: Session, contract: Contract, new_status: str) -> None:
     """Release a pending reservation without touching paid rental history."""
+    if contract.payment_status != "pending" or new_status not in {"cancelled", "expired"}:
+        raise ValueError("only a pending reservation can be released")
     contract.payment_status = new_status
-    if contract.houseId is not None:
-        house = (
-            db.query(HouseInfo)
-            .filter(HouseInfo.id == contract.houseId)
-            .with_for_update()
-            .first()
-        )
-        if house is not None:
-            house.available = 1
 
 
 def _expire_pending(db: Session, now: datetime | None = None) -> None:
     """Expire overdue reservations opportunistically on payment operations."""
     now = now or utc_now_naive()
     overdue = db.query(Contract).filter(
-        Contract.payment_status == "pending",
-        Contract.expires_at.is_not(None),
-        Contract.expires_at <= now,
+        expired_pending_condition(now),
     ).with_for_update(skip_locked=True).all()
     for contract in overdue:
+        if contract.expires_at is None:
+            contract.expires_at = pending_deadline(contract) or now
         _release_reservation(db, contract, "expired")
     if overdue:
         try:
@@ -125,12 +131,9 @@ def _expire_pending(db: Session, now: datetime | None = None) -> None:
             raise
 
 
-def _confirm_paid(db: Session, contract: Contract) -> None:
-    """Confirm a contract exactly once and create its rental record."""
-    if contract.payment_status == "paid":
-        return
-    if contract.payment_status != "pending":
-        raise ValueError("contract is no longer payable")
+def _ensure_rental(db: Session, contract: Contract) -> None:
+    """Create the contract-backed rental exactly once."""
+
     rental = db.query(Rental).filter(Rental.contract_id == contract.id).first()
     if rental is None:
         db.add(Rental(
@@ -140,8 +143,18 @@ def _confirm_paid(db: Session, contract: Contract) -> None:
             tenant_username=contract.tenantName,
             landlord_username=contract.landlordName,
             house_id=contract.houseId,
-        currentDate=utc_now_naive(),
+            currentDate=utc_now_naive(),
+            source="payment",
         ))
+
+
+def _confirm_paid(db: Session, contract: Contract) -> None:
+    """Confirm a pending contract exactly once and create its rental record."""
+    if contract.payment_status == "paid":
+        return
+    if contract.payment_status != "pending":
+        raise ValueError("contract is no longer payable")
+    _ensure_rental(db, contract)
     contract.payment_status = "paid"
     contract.paid_at = utc_now_naive()
 
@@ -188,18 +201,33 @@ def pay(
         )
 
     # ---- 3. Prevent re-payment ----
-    if contract.payment_status == "paid":
+    if contract.payment_status != "pending":
+        detail = {
+            "paid": "该合同已完成支付，请勿重复支付",
+            "reconciliation_required": "支付结果正在人工对账，请勿重复支付",
+            "cancelled": "合同已取消，请重新签约",
+            "expired": "合同已过期，请重新签约",
+            "refunded": "该合同已退款，无法再次支付",
+        }.get(contract.payment_status, "合同状态不允许支付，请重新签约")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该合同已完成支付，请勿重复支付",
+            status_code=status.HTTP_409_CONFLICT, detail=detail
         )
-    if contract.payment_status in ("cancelled", "expired"):
-        raise HTTPException(status_code=409, detail="合同已取消或过期，请重新签约")
-    if contract.expires_at is not None and contract.expires_at <= utc_now_naive():
+    now = utc_now_naive()
+    if contract.payment_status == "pending" and pending_contract_is_expired(contract, now):
+        if contract.expires_at is None:
+            contract.expires_at = pending_deadline(contract) or now
         _release_reservation(db, contract, "expired")
         db.commit()
         invalidate_house_caches(contract.houseId)
         raise HTTPException(status_code=409, detail="合同已过期，请重新签约")
+
+    try:
+        amount = Decimal(str(contract.rentValue))
+        if not amount.is_finite() or amount <= 0 or amount != amount.quantize(Decimal("0.01")):
+            raise ValueError
+        total_amount = float(amount)
+    except (ValueError, TypeError, InvalidOperation):
+        raise HTTPException(status_code=500, detail="合同金额格式错误")
 
     # ---- 4. Generate or reuse out_trade_no (prevent changing trade_no) ----
     if contract.payment_trade_no is not None:
@@ -225,15 +253,6 @@ def pay(
                 detail="支付初始化失败，请稍后重试",
             )
 
-    # ---- 5. Read amount from contract (NEVER from client) ----
-    try:
-        total_amount = float(contract.rentValue)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="合同金额格式错误",
-        )
-
     subject = f"房屋租赁-合同#{contract.id}"
 
     # ---- 6. Generate Alipay payment URL ----
@@ -256,7 +275,7 @@ def pay(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"生成支付链接失败: {e}",
+            detail="生成支付链接失败，请稍后重试",
         )
 
     return APIResponse(
@@ -293,7 +312,13 @@ async def alipay_notify(
     signature = data.pop("sign", None)
     sign_type = data.pop("sign_type", None)
 
-    # ---- 1. Verify signature (skip in sandbox/dev) ----
+    # Alipay's callback signature algorithm is part of the trust boundary.
+    # Reject missing or unexpected algorithms before invoking the verifier.
+    if str(sign_type or "").upper() not in {"RSA", "RSA2"}:
+        logger.warning("Alipay notify rejected unsupported sign_type=%s", sign_type)
+        return "failure"
+
+    # ---- 1. Verify signature ----
     try:
         alipay = _get_alipay_client()
         if not alipay.verify(data, signature):
@@ -314,6 +339,7 @@ async def alipay_notify(
     trade_status = data.get("trade_status")
     total_amount_str = data.get("total_amount")
     seller_id = data.get("seller_id")
+    app_id = data.get("app_id")
 
     # ---- 2. Only process terminal states ----
     if trade_status not in ("TRADE_SUCCESS", "TRADE_FINISHED"):
@@ -327,6 +353,9 @@ async def alipay_notify(
     expected_seller = settings.ALIPAY_SELLER_ID
     if not expected_seller or seller_id != expected_seller:
         logger.warning("Alipay notify seller_id is missing or does not match")
+        return "failure"
+    if not settings.ALIPAY_APP_ID or app_id != settings.ALIPAY_APP_ID:
+        logger.warning("Alipay notify app_id is missing or does not match")
         return "failure"
 
     # ---- 4. Find contract by trade_no ----
@@ -343,27 +372,7 @@ async def alipay_notify(
         )
         return "failure"
 
-    # ---- 5. Idempotent check: already paid ----
-    if contract.payment_status == "paid":
-        logger.info(
-            f"Alipay notify: already paid (idempotent): "
-            f"trade_no={out_trade_no}, contract_id={contract.id}"
-        )
-        return "success"
-    if contract.payment_status != "pending":
-        logger.warning("Alipay notify received for a non-payable contract")
-        return "failure"
-    if contract.expires_at is not None and contract.expires_at <= utc_now_naive():
-        try:
-            _release_reservation(db, contract, "expired")
-            db.commit()
-            invalidate_house_caches(contract.houseId)
-        except Exception:
-            db.rollback()
-            logger.exception("Alipay notify failed to release expired reservation")
-        return "failure"
-
-    # ---- 6. Validate amount (prevent amount tampering) ----
+    # ---- 5. Validate amount before accepting any terminal notification ----
     try:
         expected_amount = f"{float(contract.rentValue):.2f}"
     except (ValueError, TypeError):
@@ -384,8 +393,46 @@ async def alipay_notify(
         )
         return "failure"
 
+    # ---- 6. Idempotency and late-success reconciliation ----
+    if contract.payment_status in {"paid", "reconciliation_required", "refunded"}:
+        return "success"
+
+    now = utc_now_naive()
+    late_or_closed = contract.payment_status in {"expired", "cancelled"} or (
+        contract.payment_status == "pending" and pending_contract_is_expired(contract, now)
+    )
+    if late_or_closed:
+        try:
+            if contract.payment_status == "pending":
+                if contract.expires_at is None:
+                    contract.expires_at = pending_deadline(contract) or now
+                _release_reservation(db, contract, "expired")
+            contract.payment_status = "reconciliation_required"
+            contract.payment_notified_at = now
+            contract.payment_notify_trade_no = data.get("trade_no")
+            contract.payment_notify_amount = received_amount
+            contract.reconciliation_reason = "payment_success_after_contract_closed"
+            db.commit()
+            invalidate_house_caches(contract.houseId)
+            logger.warning(
+                "Trusted payment success requires reconciliation: contract_id=%s",
+                contract.id,
+            )
+            return "success"
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to persist payment reconciliation state")
+            return "failure"
+    if contract.payment_status != "pending":
+        logger.warning("Alipay notify received for an unsupported contract state")
+        return "failure"
+
     # ---- 7. Update contract payment status ----
     try:
+        contract.payment_notified_at = now
+        contract.payment_notify_trade_no = data.get("trade_no")
+        contract.payment_notify_amount = received_amount
+        contract.reconciliation_reason = None
         _confirm_paid(db, contract)
         db.commit()
         logger.info(
@@ -400,6 +447,90 @@ async def alipay_notify(
         return "failure"
 
     return "success"
+
+
+@router.get("/payments/reconciliation", response_model=APIResponse[list])
+def list_payment_reconciliations(
+    db: Session = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+):
+    """List unresolved trusted late-payment notifications for administrators."""
+
+    contracts = (
+        db.query(Contract)
+        .filter(Contract.payment_status == "reconciliation_required")
+        .order_by(Contract.payment_notified_at.asc(), Contract.id.asc())
+        .limit(100)
+        .all()
+    )
+    return APIResponse(data=[contract.to_dict() for contract in contracts], message="查询成功")
+
+
+@router.post("/payments/{contract_id}/reconcile", response_model=APIResponse[dict])
+def resolve_payment_reconciliation(
+    contract_id: int,
+    body: ReconciliationRequest,
+    db: Session = Depends(get_db),
+    admin: UserModel = Depends(get_current_admin),
+):
+    """Resolve a trusted late payment without bypassing current occupancy."""
+
+    contract = (
+        db.query(Contract)
+        .filter(Contract.id == contract_id)
+        .with_for_update()
+        .first()
+    )
+    if contract is None:
+        raise HTTPException(status_code=404, detail="合同不存在")
+    if contract.payment_status != "reconciliation_required":
+        raise HTTPException(status_code=409, detail="合同当前不需要支付对账")
+
+    now = utc_now_naive()
+    if body.action == "accept_payment":
+        if contract.houseId is None or contract.endDate is None or contract.endDate < now:
+            raise HTTPException(status_code=409, detail="合同已失效，不能接受该笔支付，请完成退款")
+        house = (
+            db.query(HouseInfo)
+            .filter(HouseInfo.id == contract.houseId)
+            .with_for_update()
+            .first()
+        )
+        if house is None:
+            raise HTTPException(status_code=409, detail="合同关联房源不存在，请完成退款")
+        if (
+            house.ownership_status != "verified"
+            or house.landlord_id is None
+            or house.landlord_id != contract.landlordId
+        ):
+            raise HTTPException(status_code=409, detail="房源归属与合同不一致，请完成退款")
+        if house.available != 1 or house_has_active_occupancy(
+            db, house.id, now, exclude_contract_id=contract.id
+        ):
+            raise HTTPException(status_code=409, detail="房源已被占用或下架，不能接受支付，请完成退款")
+        _ensure_rental(db, contract)
+        contract.payment_status = "paid"
+        contract.paid_at = now
+        resolution = "accepted"
+    else:
+        # This records that an administrator has completed the refund through
+        # the provider; it intentionally does not call a mock or real refund API.
+        contract.payment_status = "refunded"
+        resolution = "refunded"
+
+    contract.reconciled_at = now
+    contract.reconciled_by = admin.id
+    contract.reconciliation_resolution = resolution
+    contract.reconciliation_note = body.note.strip()
+    try:
+        db.commit()
+        db.refresh(contract)
+        invalidate_house_caches(contract.houseId)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to resolve payment reconciliation for contract_id=%s", contract_id)
+        raise HTTPException(status_code=500, detail="保存对账结果失败，请稍后重试")
+    return APIResponse(data=contract.to_dict(), message="支付对账已处理")
 
 
 @router.post("/payments/{contract_id}/cancel", response_model=APIResponse)
@@ -419,17 +550,16 @@ def cancel_payment(
         raise HTTPException(status_code=404, detail="合同不存在")
     if contract.tenantId != current_user.id:
         raise HTTPException(status_code=403, detail="无权取消该合同")
-    if contract.payment_status == "paid":
-        raise HTTPException(status_code=409, detail="已支付合同不能取消")
-    if contract.payment_status == "pending":
-        try:
-            _release_reservation(db, contract, "cancelled")
-            db.commit()
-            invalidate_house_caches(contract.houseId)
-        except Exception:
-            db.rollback()
-            logger.exception("Failed to cancel contract_id=%s", contract_id)
-            raise HTTPException(status_code=500, detail="取消合同失败，请稍后重试")
+    if contract.payment_status != "pending":
+        raise HTTPException(status_code=409, detail="只有待支付合同可以取消")
+    try:
+        _release_reservation(db, contract, "cancelled")
+        db.commit()
+        invalidate_house_caches(contract.houseId)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to cancel contract_id=%s", contract_id)
+        raise HTTPException(status_code=500, detail="取消合同失败，请稍后重试")
     return APIResponse(data=contract.to_dict(), message="合同已取消")
 
 
@@ -456,9 +586,12 @@ def expire_payment(
         raise HTTPException(status_code=403, detail="无权操作该合同")
     if contract.payment_status != "pending":
         raise HTTPException(status_code=409, detail="合同当前不能过期释放")
-    if contract.expires_at is None or contract.expires_at > utc_now_naive():
+    now = utc_now_naive()
+    if not pending_contract_is_expired(contract, now):
         raise HTTPException(status_code=409, detail="合同尚未过期")
     try:
+        if contract.expires_at is None:
+            contract.expires_at = pending_deadline(contract) or now
         _release_reservation(db, contract, "expired")
         db.commit()
         invalidate_house_caches(contract.houseId)

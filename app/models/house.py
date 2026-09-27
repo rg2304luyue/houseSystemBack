@@ -1,7 +1,8 @@
 """HouseInfo — ported from Flask-SQLAlchemy to SQLAlchemy 2.x DeclarativeBase."""
 from typing import Optional
 import datetime
-from sqlalchemy import Integer, String, Float, Date, text
+from sqlalchemy import ForeignKey, Integer, String, Float, Date, text
+from sqlalchemy.dialects.mysql import INTEGER as MYSQL_INTEGER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -9,7 +10,7 @@ from app.db.base import Base
 class HouseInfo(Base):
     __tablename__ = "house_info"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(MYSQL_INTEGER(unsigned=True), primary_key=True, autoincrement=True)
     title: Mapped[Optional[str]] = mapped_column(String(100), comment='标题，如：整租·锦源小区 2室1厅 南')
     region: Mapped[Optional[str]] = mapped_column(String(50), comment='区，如：雨花')
     block: Mapped[Optional[str]] = mapped_column(String(50), comment='街道，如：树木岭')
@@ -28,8 +29,13 @@ class HouseInfo(Base):
     page_views: Mapped[int] = mapped_column(Integer, default=0, comment='浏览量')
     landlord: Mapped[Optional[str]] = mapped_column(String(255), comment='房东')
     phone_num: Mapped[Optional[str]] = mapped_column(String(100), comment='房东电话')
-    landlord_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
-    house_num: Mapped[Optional[int]] = mapped_column(Integer, comment='房源编号')
+    landlord_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("user_info.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    ownership_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending", server_default="pending"
+    )
+    house_num: Mapped[Optional[str]] = mapped_column(String(255), comment='房源编号')
 
     # One-to-one relationship with HouseDetail
     detail_obj: Mapped[Optional["HouseDetail"]] = relationship(
@@ -39,7 +45,7 @@ class HouseInfo(Base):
     )
 
     def to_dict(self):
-        """Convert model instance to dictionary."""
+        """Convert model instance to dictionary (landlord phone masked)."""
         data = {}
         for column in self.__table__.columns:
             value = getattr(self, column.name)
@@ -47,4 +53,13 @@ class HouseInfo(Base):
                 data[column.name] = value.isoformat()
             else:
                 data[column.name] = value
+        data["phone_num"] = self._masked_phone()
         return data
+
+    def _masked_phone(self) -> Optional[str]:
+        """Mask the landlord phone (keep first 3 / last 4) for public listings."""
+        phone = self.phone_num
+        digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+        if len(digits) < 8:
+            return phone
+        return f"{digits[:3]}{'*' * (len(digits) - 7)}{digits[-4:]}"

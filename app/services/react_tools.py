@@ -3,13 +3,20 @@
 from functools import lru_cache
 import json
 import logging
+import re
 
 from langchain_core.tools import tool
+from pydantic import StrictInt
 import requests
+from sqlalchemy import or_
 
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.models.house import HouseInfo
+from app.services.agent_errors import AgentPublicError
+from app.services.query_constraints import normalize_region, parse_number
+from app.core.time import utc_now_naive
+from app.services.occupancy import market_available_house_condition
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,86 @@ _CITY_ADCODES = {
     "开福": "430105",
     "雨花": "430111",
 }
+_BLOCK_REGION_MAP = {
+    # Only include reviewed, unambiguous locations.  Unknown blocks remain
+    # unclassified instead of being guessed from the current (partly dirty)
+    # demo rows.
+    "德政园": "芙蓉",
+    "树木岭": "雨花",
+    "泉塘": "长沙县",
+    "麓谷": "岳麓",
+    "麓谷西": "岳麓",
+    "东方红": "岳麓",
+    "桃花村": "岳麓",
+}
+_TITLE_RENT_TYPE_PATTERN = re.compile(r"^\s*(整租|合租)\s*[·・]?")
+_TITLE_ROOMS_PATTERN = re.compile(r"(?<!\d)(\d+)\s*(?:室|居室)")
+_ROOMS_PATTERN = re.compile(r"(?<!\d)(\d+)\s*(?:室|居室)")
+_TOOL_ROOMS_PATTERN = re.compile(r"([一二两三四五六七八九十\d]+)\s*(?:室|居室)")
+
+
+def _normalized_region(value: str) -> str:
+    """Backward-compatible alias for the shared canonical normalizer."""
+
+    return normalize_region(value)
+
+
+def _validate_range(name: str, minimum: float | None, maximum: float | None) -> None:
+    if minimum is not None and minimum < 0:
+        raise ValueError(f"{name}下限不能为负数")
+    if maximum is not None and maximum < 0:
+        raise ValueError(f"{name}上限不能为负数")
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise ValueError(f"{name}下限不能大于上限")
+
+
+def _normalized_room_filter(value: str | None) -> tuple[int | None, str | None]:
+    if not value:
+        return None, None
+    match = _TOOL_ROOMS_PATTERN.search(value.strip())
+    if match is None:
+        raise ValueError("rooms 必须使用几室或几居室格式")
+    count = parse_number(match.group(1))
+    if count < 1 or count > 20:
+        raise ValueError("rooms 超出支持范围")
+    return count, f"{count}室"
+
+
+def _house_verification(house: HouseInfo) -> dict[str, object]:
+    """Classify inconsistent listing metadata without hiding the row."""
+
+    issues: list[str] = []
+    title = str(getattr(house, "title", "") or "").strip()
+    rent_type = str(getattr(house, "rent_type", "") or "").strip()
+    rooms = str(getattr(house, "rooms", "") or "").strip()
+    region = str(getattr(house, "region", "") or "").strip()
+    block = str(getattr(house, "block", "") or "").strip()
+
+    if (
+        not title or not region or not block or not rent_type or not rooms
+        or getattr(house, "price", None) is None
+    ):
+        issues.append("missing_core_field")
+
+    title_rent_type = _TITLE_RENT_TYPE_PATTERN.search(title)
+    if title_rent_type and rent_type and title_rent_type.group(1) != rent_type:
+        issues.append("title_rent_type_conflict")
+
+    title_rooms = _TITLE_ROOMS_PATTERN.search(title)
+    stored_rooms = _ROOMS_PATTERN.search(rooms)
+    if title_rooms and stored_rooms and title_rooms.group(1) != stored_rooms.group(1):
+        issues.append("title_rooms_conflict")
+
+    expected_region = _BLOCK_REGION_MAP.get(block)
+    if block and expected_region is None:
+        issues.append("block_region_unverified")
+    elif expected_region and region and expected_region != region:
+        issues.append("region_block_conflict")
+
+    return {
+        "status": "pending_verification" if issues else "verified",
+        "issues": issues,
+    }
 
 
 def _house_payload(house: HouseInfo) -> dict:
@@ -52,7 +139,18 @@ def _house_payload(house: HouseInfo) -> dict:
         payload[field] = value
     payload["subway"] = bool(payload["subway"])
     payload["tag_new"] = bool(payload["tag_new"])
+    verification = _house_verification(house)
+    payload["verification_status"] = verification["status"]
+    payload["verification_issues"] = verification["issues"]
     return payload
+
+
+def _verification_counts(houses: list[dict]) -> dict[str, int]:
+    verified = sum(item.get("verification_status") == "verified" for item in houses)
+    return {
+        "verified_count": verified,
+        "pending_verification_count": len(houses) - verified,
+    }
 
 
 def _json(value: object) -> str:
@@ -71,33 +169,78 @@ def search_houses_by_criteria(
     subway: bool | None = None,
     decoration: str | None = None,
     limit: int = 5,
+    exclude_ids: list[StrictInt] | None = None,
 ) -> str:
     """Search currently available houses using the supplied rental criteria."""
     try:
+        if exclude_ids is not None and (
+            len(exclude_ids) > 100
+            or any(type(house_id) is not int or house_id <= 0 for house_id in exclude_ids)
+        ):
+            raise ValueError("exclude_ids 最多包含100个正整数房源编号")
+        excluded_ids = list(dict.fromkeys(exclude_ids or []))
+        _validate_range("价格", min_price, max_price)
+        _validate_range("面积", min_area, max_area)
         safe_limit = max(1, min(limit, 5))
+        region_name = _normalized_region(region) if region else None
+        room_count, room_query = _normalized_room_filter(rooms)
+        rent_type_name = rent_type.strip() if rent_type else None
+        if rent_type_name not in {None, "整租", "合租"}:
+            raise ValueError("rent_type 只能是整租或合租")
+        decoration_name = decoration.strip() if decoration else None
+        applied_filters = {
+            "region": region_name,
+            "min_price": min_price,
+            "max_price": max_price,
+            "min_area": min_area,
+            "max_area": max_area,
+            "rooms": room_query,
+            "rent_type": rent_type_name,
+            "subway": bool(subway) if subway is not None else None,
+            "decoration": decoration_name,
+        }
         with SessionLocal() as db:
-            query = db.query(HouseInfo).filter(HouseInfo.available == 1)
-            if region:
-                region_key = region.replace("区", "").replace("县", "").strip()
-                query = query.filter(HouseInfo.region.contains(region_key))
+            query = db.query(HouseInfo).filter(
+                market_available_house_condition(utc_now_naive())
+            )
+            if excluded_ids:
+                query = query.filter(~HouseInfo.id.in_(excluded_ids))
+            if region_name:
+                query = query.filter(HouseInfo.region == region_name)
             if min_price is not None:
-                query = query.filter(HouseInfo.price >= max(0, min_price))
+                query = query.filter(HouseInfo.price >= min_price)
             if max_price is not None:
                 query = query.filter(HouseInfo.price <= max_price)
             if min_area is not None:
-                query = query.filter(HouseInfo.area >= max(0, min_area))
+                query = query.filter(HouseInfo.area >= min_area)
             if max_area is not None:
                 query = query.filter(HouseInfo.area <= max_area)
-            if rooms:
-                query = query.filter(HouseInfo.rooms.contains(rooms.strip()))
-            if rent_type:
-                query = query.filter(HouseInfo.rent_type == rent_type.strip())
+            if room_query:
+                query = query.filter(or_(
+                    HouseInfo.rooms.contains(f"{room_count}室"),
+                    HouseInfo.rooms.contains(f"{room_count}居室"),
+                ))
+            if rent_type_name:
+                query = query.filter(HouseInfo.rent_type == rent_type_name)
             if subway is not None:
                 query = query.filter(HouseInfo.subway == int(subway))
-            if decoration:
-                query = query.filter(HouseInfo.decoration.contains(decoration.strip()))
+            if decoration_name:
+                query = query.filter(HouseInfo.decoration.contains(decoration_name))
+            total_count = query.count()
             houses = query.order_by(HouseInfo.price.asc(), HouseInfo.id.desc()).limit(safe_limit).all()
-            return _json({"count": len(houses), "houses": [_house_payload(house) for house in houses]})
+            house_payloads = [_house_payload(house) for house in houses]
+            return _json({
+                "tool_kind": "criteria_search",
+                "excluded_ids": excluded_ids,
+                "applied_filters": applied_filters,
+                "total_count": total_count,
+                "returned_count": len(house_payloads),
+                "has_more": total_count > len(house_payloads),
+                "houses": house_payloads,
+                **_verification_counts(house_payloads),
+            })
+    except ValueError as error:
+        return _json({"error": str(error)})
     except Exception:
         logger.exception("House criteria tool failed")
         return _json({"error": "房源查询暂时不可用，请稍后重试。"})
@@ -110,11 +253,17 @@ def get_house_details(house_id: int) -> str:
         with SessionLocal() as db:
             house = db.query(HouseInfo).filter(
                 HouseInfo.id == house_id,
-                HouseInfo.available == 1,
+                market_available_house_condition(utc_now_naive()),
             ).first()
             if house is None:
                 return _json({"error": "未找到该房源或房源当前不可用。"})
-            return _json({"house": _house_payload(house)})
+            payload = _house_payload(house)
+            return _json({
+                "tool_kind": "house_detail",
+                "applied_filters": {"house_id": house_id},
+                "house": payload,
+                **_verification_counts([payload]),
+            })
     except Exception:
         logger.exception("House detail tool failed")
         return _json({"error": "房源详情暂时不可用，请稍后重试。"})
@@ -126,10 +275,23 @@ def get_popular_houses(limit: int = 5) -> str:
     try:
         safe_limit = max(1, min(limit, 5))
         with SessionLocal() as db:
-            houses = db.query(HouseInfo).filter(HouseInfo.available == 1).order_by(
+            query = db.query(HouseInfo).filter(
+                market_available_house_condition(utc_now_naive())
+            )
+            total_count = query.count()
+            houses = query.order_by(
                 HouseInfo.page_views.desc(), HouseInfo.id.desc()
             ).limit(safe_limit).all()
-            return _json({"count": len(houses), "houses": [_house_payload(house) for house in houses]})
+            house_payloads = [_house_payload(house) for house in houses]
+            return _json({
+                "tool_kind": "popular_houses",
+                "applied_filters": {},
+                "total_count": total_count,
+                "returned_count": len(house_payloads),
+                "has_more": total_count > len(house_payloads),
+                "houses": house_payloads,
+                **_verification_counts(house_payloads),
+            })
     except Exception:
         logger.exception("Popular houses tool failed")
         return _json({"error": "热门房源暂时不可用，请稍后重试。"})
@@ -142,26 +304,81 @@ def _rag_service():
     return RagRetrievalService()
 
 
-def _rental_knowledge_payload(query: str) -> str:
-    cleaned_query = query.strip()[:1000]
+def normalize_rag_query(query: str) -> str:
+    """Return the exact bounded query recorded in RAG tool payloads."""
+
+    return query.strip()[:1000]
+
+
+def _rental_knowledge_payload(
+    query: str, *, knowledge_types: tuple[str, ...] | None = None
+) -> str:
+    cleaned_query = normalize_rag_query(query)
     if not cleaned_query:
         return _json({"query": "", "grounded": False, "chunks": []})
     try:
-        return _json(_rag_service().retrieve(cleaned_query).to_dict())
-    except Exception:
-        logger.exception("Rental knowledge retrieval failed")
-        return _json({
-            "query": cleaned_query,
-            "grounded": False,
-            "chunks": [],
-            "error": "knowledge_base_unavailable",
-        })
+        return _json(
+            _rag_service().retrieve(
+                cleaned_query, knowledge_types=knowledge_types
+            ).to_dict()
+        )
+    except AgentPublicError:
+        raise
+    except Exception as error:
+        error_name = type(error).__name__
+        status_code = getattr(error, "status_code", None)
+        # Never log the exception text: provider HTTP exceptions may contain
+        # request URLs or credentials.  Type/status are sufficient for triage.
+        logger.warning(
+            "rental_knowledge_retrieval_failed error_type=%s status=%s",
+            error_name,
+            status_code,
+        )
+        is_config_error = isinstance(error, (FileNotFoundError, KeyError)) or (
+            isinstance(error, RuntimeError)
+            and "required before using RAG embeddings" in str(error)
+        )
+        if is_config_error:
+            raise AgentPublicError(
+                "知识库尚未正确配置，请联系管理员。",
+                code="RAG_CONFIG_ERROR",
+                provider="rag",
+                retryable=False,
+            ) from None
+        retryable = bool(getattr(error, "retryable", False)) or (
+            status_code in {408, 429}
+            or isinstance(status_code, int) and status_code >= 500
+            or error_name in {
+                "Timeout",
+                "ConnectTimeout",
+                "ReadTimeout",
+                "ConnectionError",
+                "CircuitOpenError",
+                "CapacityExceededError",
+            }
+        )
+        provider = "dashscope" if (
+            "DashScope" in error_name or getattr(error, "provider", None) == "dashscope"
+        ) else "rag"
+        raise AgentPublicError(
+            "知识库暂时不可用，请稍后重试。",
+            code="RAG_UNAVAILABLE",
+            provider=provider,
+            retryable=retryable,
+            retry_after=2 if retryable else None,
+        ) from None
 
 
 @tool
-def search_rental_knowledge(query: str) -> str:
-    """Return scored evidence. Cite chunks as [1], [2]; if grounded is false, do not answer from memory."""
-    return _rental_knowledge_payload(query)
+def search_rental_guidance(query: str) -> str:
+    """Search non-live rental guides and policies; cite evidence as [1], [2]."""
+    return _rental_knowledge_payload(query, knowledge_types=("guide", "policy"))
+
+
+@tool
+def search_historical_snapshots(query: str) -> str:
+    """Search explicitly historical public listing snapshots, never current availability."""
+    return _rental_knowledge_payload(query, knowledge_types=("historical_snapshot",))
 
 
 @tool
@@ -209,15 +426,13 @@ def get_weather_for_visit(city: str = "长沙") -> str:
             },
             "forecast": casts,
         })
-    except (requests.RequestException, ValueError, TypeError):
-        logger.exception("Weather tool failed")
+    except (requests.RequestException, ValueError, TypeError) as error:
+        status_code = getattr(getattr(error, "response", None), "status_code", None)
+        # HTTPError.__str__ includes the prepared URL, which contains the API
+        # key in this provider's query string.  Log bounded metadata only.
+        logger.warning(
+            "weather_tool_failed error_type=%s status=%s",
+            type(error).__name__,
+            status_code,
+        )
         return _json({"error": "天气查询暂时不可用，请稍后重试。"})
-
-
-REACT_TOOLS = (
-    search_houses_by_criteria,
-    get_house_details,
-    get_popular_houses,
-    search_rental_knowledge,
-    get_weather_for_visit,
-)

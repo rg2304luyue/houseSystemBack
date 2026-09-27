@@ -36,7 +36,14 @@ class UserModel(Base):
             "addr": self.addr,
             "seen_id": self.seen_id,
             "collect_id": self.collect_id,
-            "identityCard": self.identityCard,
+            "identityCard": self._masked_identity_card(),
             "userType": self.userType,
             "avatarUrl": self.avatarUrl,
         }
+
+    def _masked_identity_card(self) -> Optional[str]:
+        """Mask the ID number (keep first 6 / last 4) before it leaves the API."""
+        card = self.identityCard
+        if not card or len(card) <= 10:
+            return card
+        return f"{card[:6]}{'*' * (len(card) - 10)}{card[-4:]}"

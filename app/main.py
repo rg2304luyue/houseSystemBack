@@ -20,6 +20,16 @@ async def lifespan(app: FastAPI):
         print("Database connection successful")
     except Exception as e:
         print(f"Database connection failed: {e}")
+    else:
+        from app.api.v1.chat_ai import recover_stale_agent_runs
+        from app.db.session import SessionLocal
+        try:
+            with SessionLocal() as session:
+                recovered = recover_stale_agent_runs(session)
+            if recovered:
+                print(f"Recovered {recovered} stale AI run(s)")
+        except Exception as error:
+            print(f"AI run recovery skipped; apply the latest migration: {error}")
     yield
     # Shutdown: dispose engine
     engine.dispose()

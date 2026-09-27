@@ -12,11 +12,17 @@ class RagRetrievalService:
         self.config = dict(chroma_config if config is None else config)
         self.vector_store = vector_store if vector_store is not None else VectorStoreServiceV2(config=self.config)
 
-    def retrieve(self, query: str) -> KnowledgeSearchResult:
+    def retrieve(
+        self, query: str, *, knowledge_types: tuple[str, ...] | None = None
+    ) -> KnowledgeSearchResult:
         cleaned_query = query.strip()[:1000]
         if not cleaned_query:
             return KnowledgeSearchResult(query="", grounded=False)
-        chunks = self.vector_store.search(cleaned_query)
+        chunks = (
+            self.vector_store.search(cleaned_query)
+            if knowledge_types is None
+            else self.vector_store.search(cleaned_query, knowledge_types=knowledge_types)
+        )
         budget = min(max(1, int(self.config.get("max_context_chars", 8000))), 100_000)
         accepted: list[RetrievedChunk] = []
         used = 0
@@ -31,6 +37,10 @@ class RagRetrievalService:
                 chunk_id=chunk.chunk_id, content=content, score=chunk.score, source=chunk.source,
                 page=chunk.page, section=chunk.section, source_url=chunk.source_url,
                 collected_at=chunk.collected_at, document_id=chunk.document_id,
+                knowledge_type=chunk.knowledge_type, title=chunk.title,
+                effective_at=chunk.effective_at, jurisdiction=chunk.jurisdiction,
+                verification_status=chunk.verification_status,
+                is_current=chunk.is_current, house_num=chunk.house_num,
             ))
             used += len(content)
         return KnowledgeSearchResult(query=cleaned_query, grounded=bool(accepted), chunks=accepted)

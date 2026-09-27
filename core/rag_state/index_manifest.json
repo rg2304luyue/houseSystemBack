@@ -17,6 +17,22 @@
       "content_hash": "22c68657b7802c2901659e0518188147475c61dfa8258ee14cc5f3832680c60e",
       "source": "changsha_ningxiang_rentals.txt"
     },
+    "1ab00d0e0e34a290826609a287e365604188eefff8e79cc06e5fca91f167ca90": {
+      "chunk_ids": [
+        "c6adc905879bd5c1abf593292e9388b76d55af8f755e73ac8cd3062be7b07f64",
+        "5a2d74ac2bae2f43fe0e23d9d6aa7905cfae587b70e57b625d1b49c29f8f14f1"
+      ],
+      "content_hash": "3a8caa45386ca5522c05385af0597579b826f91fcc3d476cd066b2a79dc1ded1",
+      "source": "policies/civil_code_termination_renewal.txt"
+    },
+    "1fe1f30be5b0629d29a22e28853aec48c38a831a31fcea31d3b86103cac19b41": {
+      "chunk_ids": [
+        "20c18d11719ea2783cd2e2af6f17f3d25f328a03b9df359c442dfeb58a60fc24",
+        "471199ca8f9570fdc591ae548a795154bb1160c52ab8afc3135e588d4f060960"
+      ],
+      "content_hash": "6b77342a8ec3424ec079fd23a971608e3e578839c02b1e1b2e43d5e31263df25",
+      "source": "policies/civil_code_subletting_sale.txt"
+    },
     "249f1c94a7bc8aec566b68ce80ca7b7b92ebc6f7215bf1c1285145a75133eeb1": {
       "chunk_ids": [
         "d2eb62194707877adc4db8483cd8836aafac83a01925e9c663d5632c09f2db2e",
@@ -33,6 +49,14 @@
       "content_hash": "6e751d3be054bf9e26d9c08af7fa3ab4a106912bd1db82cd2b43e9267196432c",
       "source": "changsha_yuhua_rentals.txt"
     },
+    "5cae51fe9fcaa7aaaa748b45b049c41f0881e231ee0114f7f79cc7fd5e26a9b2": {
+      "chunk_ids": [
+        "d462bc3ce9c15d0bfb814fd9b6b6de35e9e87b881697212f58b99803250c20eb",
+        "8269f102c6a17f23799f9cc425cda898d7b4eb73507125d95ca3e67db1a396c4"
+      ],
+      "content_hash": "e9d6728cd5a727f56e6ddba870e22030593dc3f45b38caa22d08edec1c3d615d",
+      "source": "guides/rental_general_guide.txt"
+    },
     "6bdb7bc03305f16309226dd0f61d2403e868d082619e747656d69fd85bbc1dd7": {
       "chunk_ids": [
         "70faba4423b6b72541368a0593cdf98767d0d9ce6da37233b5bb59086b8f776c",
@@ -48,6 +72,14 @@
       ],
       "content_hash": "d2a7bc6aa7f589be689f802e64f3d40f6f949af11e19e639c31cac8b5d676349",
       "source": "changsha_tianxin_rentals.txt"
+    },
+    "818009de4b2925d1fb7bee8fb0354111a80e4770115cc230b6864d062793f874": {
+      "chunk_ids": [
+        "af3ceada7aa3f21d460d5400874c7e96d80c71173e6d150f1f61e1e069b39d9b",
+        "95d61672ba6e0777189754994da15c069368953b56fceec700007f84820c3fe9"
+      ],
+      "content_hash": "90f908876d23484d640515d717cee9f96cdf80873cb08d97b4b5a559b0ff1a79",
+      "source": "policies/housing_regulation_safety_disputes.txt"
     },
     "842066917daee2a9fd5422e9cd8baf1c3b8c2bfe7d9279fa41975c11219aa695": {
       "chunk_ids": [
@@ -72,9 +104,35 @@
       ],
       "content_hash": "24e821e527e60b9af1f8d86b158ffda2ac9bec2a8853c05572f19d4538b71119",
       "source": "changsha_furong_rentals.txt"
+    },
+    "bfb19de5af2e4db615f93e0d1866adde65c62131b7f1d1af52d9746559d468db": {
+      "chunk_ids": [
+        "74e60b38d3e0f1a4311a6aef19d64028cb618efd34a0a71654016c1a0c49ae3e",
+        "cc500887423882e66aa5b49b6bc41fe0f1c6bad08077dd5638cd43baf8917794"
+      ],
+      "content_hash": "7f38f7583c1e3bf7458cc19b5131c362d7567b0d27537f72d51071a519b2f69e",
+      "source": "policies/civil_code_contract_maintenance.txt"
+    },
+    "ef8a4120f383622c8c8c59c91ad7c201dee7cc8ace9d87b41130a8eb38602402": {
+      "chunk_ids": [
+        "2343673a97bc3251b58953f5d6010c7085d59c8ad7d86b90527fa9bfd4083e70",
+        "da03524c8f716dd36f715af943cbc42d732714d93c65326f6c90628bbb37dcd9",
+        "15415a3b58eae7d546e62affcc63c39735942a3d3873479686619391f1149008"
+      ],
+      "content_hash": "41cdd6ee99aa241fadbb52c90df91fa2f1ef0ab57be85fec04b6850757295179",
+      "source": "policies/housing_regulation_agencies_platforms.txt"
+    },
+    "f34078d60f1927fbb85f4099d2702dbc08fd076ed287d68ab16260b48285be9a": {
+      "chunk_ids": [
+        "3e6ae21c3da3f245b0de2e5ed01081c4baa6acdcdab510d030edf5a5b6226fcb",
+        "9ebba67b0d5b9b9715b8d149927eacd1f28afbe5523b02bb3a8070d5279a8a46"
+      ],
+      "content_hash": "bcf6c665e2532ac25234d4c7e281884b9550a29059e75644ecb237239d49b318",
+      "source": "policies/housing_regulation_deposit_registration.txt"
     }
   },
-  "index_signature": "f12104f3ce896f693fb9177ff1fa314f0846765f419d55b75ee3fc60535a3b6c",
+  "generation": 2,
+  "index_signature": "7962c95d34fc701f6ec5b6e9edafdf53b2446337e00c70eda3d9babe9ba8184d",
   "state": "ready",
-  "version": 1
+  "version": 2
 }

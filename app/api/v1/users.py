@@ -15,10 +15,10 @@ Paths (under /api/v1 prefix):
 """
 
 import os
-import random
+import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File, Query, status
 from app.core.time import utc_now_naive
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
@@ -32,9 +32,30 @@ from app.models.rental import Rental
 from app.api.deps import get_current_user, get_current_admin
 from app.schemas.common import APIResponse
 from app.core.redis import get_redis, is_redis_available
+from app.core.validation import normalize_email
+from app.core.config import settings
 from app.services.email import send_password_reset_email, send_landlord_upgrade_email
 
 router = APIRouter()
+
+_RESET_CODE_SCRIPT = """
+local value = redis.call('GET', KEYS[1])
+if not value then return -2 end
+if value == ARGV[1] then
+    redis.call('DEL', KEYS[1], KEYS[2])
+    return 1
+end
+local attempts = redis.call('INCR', KEYS[2])
+if attempts == 1 then
+    local ttl = redis.call('TTL', KEYS[1])
+    if ttl > 0 then redis.call('EXPIRE', KEYS[2], ttl) else redis.call('EXPIRE', KEYS[2], 300) end
+end
+if attempts >= tonumber(ARGV[2]) then
+    redis.call('DEL', KEYS[1], KEYS[2])
+    return -1
+end
+return 0
+"""
 
 
 @router.get("/users", response_model=APIResponse[list])
@@ -107,7 +128,9 @@ class ResetPasswordRequest(BaseModel):
 
 
 class SendLandlordCodeRequest(BaseModel):
-    email: str
+    # Kept optional for client compatibility; the code is always sent to the
+    # current user's own email.
+    email: str | None = None
 
 
 class UpgradeLandlordRequest(BaseModel):
@@ -116,6 +139,19 @@ class UpgradeLandlordRequest(BaseModel):
 
 class GetUserByPhoneRequest(BaseModel):
     phone: str
+
+
+class PublicUserResponse(BaseModel):
+    id: int
+    name: str | None = None
+    avatarUrl: str | None = None
+    userType: int | None = None
+
+
+def _public_user(user: UserModel) -> dict:
+    return PublicUserResponse(
+        id=user.id, name=user.name, avatarUrl=user.avatarUrl, userType=user.userType
+    ).model_dump()
 
 
 # ---------------------------------------------------------------------------
@@ -232,26 +268,46 @@ def change_password(
 @router.post("/users/password-reset/send-code", response_model=APIResponse)
 def send_password_reset_code(
     body: SendPasswordResetCodeRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Send a 6-digit password-reset code to the given email (stored in Redis, 2-min TTL)."""
-    user = db.query(UserModel).filter_by(email=body.email).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="不存在该用户"
-        )
-
     if not is_redis_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="验证码服务暂不可用，请稍后重试",
         )
 
-    verification_code = "".join(str(random.randint(0, 9)) for _ in range(6))
-    redis_key = f"password_reset_code:{body.email}"
-    get_redis().set(redis_key, verification_code, ex=120)
+    email = body.email.strip().lower()
+    redis_client = get_redis()
+    client_host = request.client.host if request.client else "unknown"
+    ip_key = f"password_reset_ip:{client_host}:{utc_now_naive():%Y%m%d%H%M}"
+    pipeline = redis_client.pipeline(transaction=True)
+    pipeline.incr(ip_key)
+    pipeline.expire(ip_key, 120, nx=True)
+    if pipeline.execute()[0] > 30:
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+    cooldown_key = f"password_reset_last_send:{email}"
+    if not redis_client.set(cooldown_key, "1", ex=60, nx=True):
+        raise HTTPException(status_code=429, detail="请稍后再获取验证码")
+    daily_key = f"password_reset_daily:{email}:{utc_now_naive():%Y%m%d}"
+    pipeline = redis_client.pipeline(transaction=True)
+    pipeline.incr(daily_key)
+    pipeline.expire(daily_key, 86400, nx=True)
+    daily_count = pipeline.execute()[0]
+    if daily_count > 10:
+        redis_client.delete(cooldown_key)
+        raise HTTPException(status_code=429, detail="今日验证码请求次数已达上限")
 
-    send_password_reset_email(body.email, verification_code)
+    # Always return the same response so this endpoint cannot enumerate users.
+    user = db.query(UserModel).filter_by(email=email).first()
+    if user is not None:
+        verification_code = f"{secrets.randbelow(1_000_000):06d}"
+        redis_key = f"password_reset_code:{email}"
+        redis_client.set(redis_key, verification_code, ex=300)
+        redis_client.delete(f"password_reset_attempts:{email}")
+        background_tasks.add_task(send_password_reset_email, email, verification_code)
 
     return APIResponse(code=200, message="验证码发送中，请查收邮件")
 
@@ -273,15 +329,17 @@ def reset_password(
             detail="验证码服务暂不可用",
         )
 
-    redis_key = f"password_reset_code:{body.email}"
-    stored_code = get_redis().get(redis_key)
-    if not stored_code or stored_code != body.code:
+    email = body.email.strip().lower()
+    redis_key = f"password_reset_code:{email}"
+    attempt_key = f"password_reset_attempts:{email}"
+    consumed = get_redis().eval(_RESET_CODE_SCRIPT, 2, redis_key, attempt_key, body.code, 5)
+    if consumed != 1:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="验证码错误或已过期",
         )
 
-    user = db.query(UserModel).filter_by(email=body.email).first()
+    user = db.query(UserModel).filter_by(email=email).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在"
@@ -290,7 +348,6 @@ def reset_password(
     try:
         user.set_password(body.password)
         db.commit()
-        get_redis().delete(redis_key)
         return APIResponse(code=200, message="密码更新成功")
     except IntegrityError:
         db.rollback()
@@ -314,14 +371,17 @@ def reset_password(
 @router.post("/users/me/landlord/send-code", response_model=APIResponse)
 def send_landlord_upgrade_code(
     body: SendLandlordCodeRequest,
-    db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Send a verification code for upgrading to landlord (5-min TTL)."""
-    user = db.query(UserModel).filter_by(email=body.email).first()
-    if user is None:
+    """Send a verification code for upgrading to landlord (5-min TTL).
+
+    The code is only ever sent to the authenticated user's own email, with a
+    60s cooldown, to prevent mail-bombing arbitrary addresses.
+    """
+    if not settings.QQ_SMTP_EMAIL or not settings.QQ_SMTP_AUTH_CODE:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="不存在该用户"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="邮件服务未配置",
         )
 
     if not is_redis_available():
@@ -330,11 +390,20 @@ def send_landlord_upgrade_code(
             detail="验证码服务暂不可用，请稍后重试",
         )
 
-    verification_code = "".join(str(random.randint(0, 9)) for _ in range(6))
-    redis_key = f"email_verification_code:{body.email}"
-    get_redis().set(redis_key, verification_code, ex=300)
+    email = normalize_email(current_user.email)
+    redis_client = get_redis()
+    last_send_key = f"landlord_code_last_send:{email}"
+    if not redis_client.set(last_send_key, "1", ex=60, nx=True):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="发送过于频繁，请稍后再试",
+        )
 
-    send_landlord_upgrade_email(body.email, verification_code)
+    verification_code = f"{secrets.randbelow(1_000_000):06d}"
+    redis_key = f"email_verification_code:{email}"
+    redis_client.set(redis_key, verification_code, ex=300)
+
+    send_landlord_upgrade_email(email, verification_code)
 
     return APIResponse(code=200, message="验证码发送中，请查收邮件")
 
@@ -363,7 +432,7 @@ def upgrade_to_landlord(
             detail="验证码服务暂不可用",
         )
 
-    email = current_user.email
+    email = normalize_email(current_user.email)
     redis_key = f"email_verification_code:{email}"
     stored_code = get_redis().get(redis_key)
 
@@ -398,13 +467,12 @@ def get_user_avatar(
             status_code=status.HTTP_404_NOT_FOUND, detail="不存在该用户"
         )
 
-    user_dict = user.to_dict()
-    if user_dict.get("avatarUrl") is None:
+    if user.avatarUrl is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="该用户无头像"
         )
 
-    return APIResponse(code=200, data=user_dict, message="获取成功")
+    return APIResponse(code=200, data={"id": user.id, "avatarUrl": user.avatarUrl}, message="获取成功")
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +568,7 @@ def upload_avatar(
 def get_user_by_name(
     name: str,
     db: Session = Depends(get_db),
+    _current_user: UserModel = Depends(get_current_user),
 ):
     """Look up a user by their name."""
     user = db.query(UserModel).filter_by(name=name).first()
@@ -508,7 +577,7 @@ def get_user_by_name(
             status_code=status.HTTP_404_NOT_FOUND, detail="无该用户"
         )
 
-    return APIResponse(code=200, data=user.to_dict(), message="获取成功")
+    return APIResponse(code=200, data=_public_user(user), message="获取成功")
 
 
 # ---------------------------------------------------------------------------
@@ -529,4 +598,4 @@ def get_user_by_phone(
             status_code=status.HTTP_404_NOT_FOUND, detail="不存在该用户"
         )
 
-    return APIResponse(code=200, data=user.to_dict(), message="返回成功")
+    return APIResponse(code=200, data=_public_user(user), message="返回成功")

@@ -30,3 +30,6 @@ celerybeat-schedule
 
 # 测试报告
 htmlcov/
+
+# 临时校验目录
+.recheck-tmp/

@@ -3,10 +3,9 @@ Ported from Flask blueprints/houseinfo.py.
 """
 from collections import defaultdict
 import datetime
-import json
 import logging
 import re
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, func
@@ -18,129 +17,44 @@ from app.db.session import get_db
 from app.models.house import HouseInfo
 from app.models.house_detail import HouseDetail
 from app.models.rental import Rental
+from app.models.contract import Contract
 from app.schemas.common import APIResponse, PaginatedData
-from app.api.deps import get_current_user, get_current_landlord
+from app.api.deps import get_current_user, get_current_landlord, get_current_admin
 from app.models.user import UserModel
-from app.core.config import settings
+from app.core.time import utc_now_naive
+from app.services.house_cache import RedisCache, invalidate_house_caches
+from app.services.occupancy import (
+    active_contract_condition,
+    active_rental_condition,
+    market_available_house_condition,
+)
+from app.services.house_capabilities import (
+    capability_fields,
+    public_visible_house_condition,
+    serialize_houses,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["houses"])
 
-# ---------------------------------------------------------------------------
-# Redis cache wrapper (standalone redis-py, mirroring exts/redis.py interface)
-# ---------------------------------------------------------------------------
-_DEFAULT_CACHE_TIMEOUT = 300  # 5 minutes
-_LOCAL_CACHE_TTL = 30
-_LOCAL_CACHE_MAXSIZE = 256
 
-_redis_client = None
-_local_cache = None
-
-
-def _get_redis():
-    global _redis_client
-    if _redis_client is None:
-        import redis as _redis_mod
-        _redis_client = _redis_mod.Redis.from_url(
-            settings.REDIS_URL,
-            decode_responses=False,
-            socket_connect_timeout=2,
-            socket_timeout=2,
-        )
-    return _redis_client
+def _has_active_rental(db: Session, house_id: int) -> bool:
+    """Treat linked, ended rentals as historical; unknown legacy rentals stay active."""
+    return db.query(Rental.id).outerjoin(
+        Contract, Rental.contract_id == Contract.id
+    ).filter(
+        Rental.house_id == house_id,
+        active_rental_condition(utc_now_naive()),
+    ).first() is not None
 
 
-def _get_local_cache():
-    global _local_cache
-    if _local_cache is None:
-        from cachetools import TTLCache
-        _local_cache = TTLCache(maxsize=_LOCAL_CACHE_MAXSIZE, ttl=_LOCAL_CACHE_TTL)
-    return _local_cache
-
-
-class RedisCache:
-    @staticmethod
-    def get_cache(key: str):
-        """L1 local -> L2 Redis; returns None on any error or miss."""
-        local = _get_local_cache()
-        try:
-            if key in local:
-                return local[key]
-        except Exception:
-            pass
-
-        try:
-            r = _get_redis()
-            raw = r.get(key)
-            if raw:
-                data = json.loads(raw)
-                try:
-                    local[key] = data
-                except Exception:
-                    pass
-                return data
-        except Exception as e:
-            logger.warning(f"Redis get_cache('{key}') failed: {e}")
-        return None
-
-    @staticmethod
-    def set_cache(key: str, data, timeout: int = _DEFAULT_CACHE_TIMEOUT):
-        """Write L2 first, then L1 (so L2 failure does not pollute L1)."""
-        try:
-            r = _get_redis()
-            r.setex(key, timeout, json.dumps(data))
-        except Exception as e:
-            logger.warning(f"Redis set_cache('{key}') failed: {e}")
-            return
-        try:
-            _get_local_cache()[key] = data
-        except Exception:
-            pass
-
-    @staticmethod
-    def delete_cache(key: str):
-        """Delete L2 first, then L1."""
-        try:
-            _get_redis().delete(key)
-        except Exception as e:
-            logger.warning(f"Redis delete_cache('{key}') failed: {e}")
-        try:
-            _get_local_cache().pop(key, None)
-        except Exception:
-            pass
-
-    @staticmethod
-    def delete_by_prefix(prefix: str):
-        """Scan-delete L2 keys by prefix, then purge L1."""
-        try:
-            r = _get_redis()
-            cursor = 0
-            while True:
-                cursor, keys = r.scan(cursor, match=f"{prefix}*", count=100)
-                if keys:
-                    r.delete(*keys)
-                if cursor == 0:
-                    break
-        except Exception as e:
-            logger.warning(f"Redis delete_by_prefix('{prefix}') failed: {e}")
-        try:
-            local = _get_local_cache()
-            keys_to_del = [k for k in local if k.startswith(prefix)]
-            for k in keys_to_del:
-                local.pop(k, None)
-        except Exception:
-            pass
-
-
-def invalidate_house_caches(house_id: int | None = None) -> None:
-    """Invalidate every cached view affected by a house availability change."""
-    if house_id is not None:
-        RedisCache.delete_cache(f"house_info:{house_id}")
-    RedisCache.delete_cache("house_hot_lists")
-    RedisCache.delete_cache("house_new_lists")
-    RedisCache.delete_by_prefix("all_house_infos_count")
-
+def _has_active_contract(db: Session, house_id: int) -> bool:
+    now = utc_now_naive()
+    return db.query(Contract.id).filter(
+        Contract.houseId == house_id,
+        active_contract_condition(now),
+    ).first() is not None
 
 # ---------------------------------------------------------------------------
 # Pydantic request / response schemas
@@ -190,6 +104,10 @@ class IncrementViewRequest(BaseModel):
     houseid: int
 
 
+class HouseVerificationRequest(BaseModel):
+    ownership_status: Literal["verified", "rejected"]
+
+
 class HouseDetailRequest(BaseModel):
     photos: list[str] = Field(default_factory=list, max_length=50)
     facilities: dict[str, bool] = Field(default_factory=dict)
@@ -237,7 +155,7 @@ def _require_house_owner(house: HouseInfo, user: UserModel) -> None:
 @router.get("/houses/count", response_model=APIResponse[int])
 def house_count(db: Session = Depends(get_db)):
     """Return total number of houses in the database."""
-    total = db.query(HouseInfo).count()
+    total = db.query(HouseInfo).filter(public_visible_house_condition()).count()
     return APIResponse(data=total, message="查询成功")
 
 
@@ -248,14 +166,17 @@ def hot_houses(
     db: Session = Depends(get_db),
 ):
     """Return top 4 houses by page views (cached 5 min)."""
-    cache_key = "house_hot_lists"
+    cache_key = "house_hot_lists:v3"
     if not no_cache:
         cached = RedisCache.get_cache(cache_key)
         if cached is not None:
             return APIResponse(data=cached, message="查询成功")
 
-    houses = db.query(HouseInfo).order_by(HouseInfo.page_views.desc()).limit(4).all()
-    data = [h.to_dict() for h in houses]
+    houses = db.query(HouseInfo).filter(
+        market_available_house_condition(utc_now_naive()),
+        public_visible_house_condition(),
+    ).order_by(HouseInfo.page_views.desc()).limit(4).all()
+    data = serialize_houses(db, houses)
     if not no_cache:
         RedisCache.set_cache(cache_key, data)
     return APIResponse(data=data, message="查询成功")
@@ -268,14 +189,17 @@ def new_houses(
     db: Session = Depends(get_db),
 ):
     """Return latest 4 houses by publish_time (cached 5 min)."""
-    cache_key = "house_new_lists"
+    cache_key = "house_new_lists:v3"
     if not no_cache:
         cached = RedisCache.get_cache(cache_key)
         if cached is not None:
             return APIResponse(data=cached, message="查询成功")
 
-    houses = db.query(HouseInfo).order_by(HouseInfo.publish_time.desc()).limit(4).all()
-    data = [h.to_dict() for h in houses]
+    houses = db.query(HouseInfo).filter(
+        market_available_house_condition(utc_now_naive()),
+        public_visible_house_condition(),
+    ).order_by(HouseInfo.publish_time.desc()).limit(4).all()
+    data = serialize_houses(db, houses)
     if not no_cache:
         RedisCache.set_cache(cache_key, data)
     return APIResponse(data=data, message="查询成功")
@@ -307,24 +231,25 @@ def create_house(
     data["landlord"] = current_user.name or current_user.phone
     data["phone_num"] = current_user.phone
     data["landlord_id"] = current_user.id
+    data["ownership_status"] = "pending"
 
     new_house = HouseInfo(**data)
     try:
         db.add(new_house)
         db.commit()
         db.refresh(new_house)
-        RedisCache.delete_cache("house_new_lists")
-        RedisCache.delete_cache("house_hot_lists")
-        RedisCache.delete_by_prefix("all_house_infos_count")
-        return APIResponse(data=new_house.to_dict(), message="房源信息添加成功", code=201)
+        invalidate_house_caches(new_house.id)
+        item = new_house.to_dict()
+        item.update(capability_fields(new_house, market_available=bool(new_house.available)))
+        return APIResponse(data=item, message="房源信息添加成功", code=201)
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"添加房源失败: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="数据库错误")
     except Exception as e:
         db.rollback()
         logger.error(f"添加房源时发生未知错误: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"添加房源失败: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="添加房源失败")
 
 
 # ----- 5. List / search houses -----
@@ -339,16 +264,18 @@ def list_houses(
     community: Optional[str] = Query(None),
     rooms: Optional[str] = Query(None),
     orientation: Optional[str] = Query(None, alias="orientation"),
-    min_price: Optional[int] = Query(None),
-    max_price: Optional[int] = Query(None),
+    min_price: Optional[int] = Query(None, ge=0),
+    max_price: Optional[int] = Query(None, ge=0),
     rent_type: Optional[str] = Query(None),
     subway: Optional[int] = Query(None),
     decoration: Optional[str] = Query(None),
     available: Optional[int] = Query(None),
 ):
     """List houses with optional filters and pagination (DB-side paging)."""
+    if min_price is not None and max_price is not None and min_price > max_price:
+        raise HTTPException(status_code=422, detail="最低租金不能高于最高租金")
     # Build cache key for total count
-    cache_key = "all_house_infos_count"
+    cache_key = "all_house_infos_count:v3"
     for key in sorted([
         "region", "block", "community", "rooms", "orientation",
         "min_price", "max_price", "rent_type", "subway", "decoration", "available",
@@ -357,7 +284,7 @@ def list_houses(
         if val is not None:
             cache_key += f":{key}:{val}"
 
-    query = db.query(HouseInfo)
+    query = db.query(HouseInfo).filter(public_visible_house_condition())
 
     # Region (comma-separated, OR)
     if region:
@@ -407,8 +334,10 @@ def list_houses(
         query = query.filter(HouseInfo.subway == subway)
     if decoration:
         query = query.filter(HouseInfo.decoration.ilike(f"%{decoration}%"))
-    if available is not None and available in (0, 1):
-        query = query.filter(HouseInfo.available == available)
+    if available == 1:
+        query = query.filter(market_available_house_condition(utc_now_naive()))
+    elif available == 0:
+        query = query.filter(HouseInfo.available == 0)
 
     # Total count with cache
     total = None
@@ -423,13 +352,13 @@ def list_houses(
             RedisCache.set_cache(cache_key, total)
 
     offset = (page - 1) * per_page
-    items = [
-        h.to_dict()
-        for h in query.order_by(HouseInfo.publish_time.desc(), HouseInfo.id.desc())
+    houses = (
+        query.order_by(HouseInfo.publish_time.desc(), HouseInfo.id.desc())
         .limit(per_page)
         .offset(offset)
         .all()
-    ]
+    )
+    items = serialize_houses(db, houses)
 
     response_data = _paginated(items, total, page, per_page)
     msg = "暂无房源信息" if (not items and page == 1) else "查询成功"
@@ -451,10 +380,10 @@ def get_house(
             return APIResponse(data=cached, message="查询成功")
 
     house = db.get(HouseInfo, house_id)
-    if not house:
+    if not house or house.ownership_status == "rejected":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="房源信息未找到")
 
-    data = house.to_dict()
+    data = serialize_houses(db, [house])[0]
     if not no_cache:
         RedisCache.set_cache(cache_key, data)
     return APIResponse(data=data, message="查询成功")
@@ -463,11 +392,23 @@ def get_house(
 @router.get("/houses/{house_id}/detail", response_model=APIResponse[dict])
 def get_house_detail(house_id: int, db: Session = Depends(get_db)):
     """Return public presentation details for a house."""
-    if db.get(HouseInfo, house_id) is None:
+    house = db.get(HouseInfo, house_id)
+    if house is None or house.ownership_status == "rejected":
         raise HTTPException(status_code=404, detail="房源信息未找到")
     detail = db.query(HouseDetail).filter(HouseDetail.house_info_id == house_id).first()
     if detail is None:
-        raise HTTPException(status_code=404, detail="房源详情未找到")
+        return APIResponse(
+            data={
+                "detail_id": None,
+                "house_info_id": house_id,
+                "photos": [],
+                "facilities": {},
+                "map_coordinates": None,
+                "created_at": None,
+                "updated_at": None,
+            },
+            message="暂无扩展详情",
+        )
     return APIResponse(data=detail.to_dict(), message="查询成功")
 
 
@@ -479,7 +420,12 @@ def create_house_detail(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Create details for a house (administrator or owner only)."""
-    house = db.get(HouseInfo, house_id)
+    house = (
+        db.query(HouseInfo)
+        .filter(HouseInfo.id == house_id)
+        .with_for_update()
+        .first()
+    )
     if house is None:
         raise HTTPException(status_code=404, detail="房源信息未找到")
     _require_house_owner(house, current_user)
@@ -487,10 +433,13 @@ def create_house_detail(
     if existing is not None:
         raise HTTPException(status_code=409, detail="房源详情已存在")
     detail = HouseDetail(house_info_id=house_id, **body.model_dump())
+    if current_user.userType != 0 and house.ownership_status == "verified":
+        house.ownership_status = "pending"
     try:
         db.add(detail)
         db.commit()
         db.refresh(detail)
+        invalidate_house_caches(house_id)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="创建房源详情失败")
@@ -505,18 +454,27 @@ def update_house_detail(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Replace details for a house (administrator or owner only)."""
-    house = db.get(HouseInfo, house_id)
+    house = (
+        db.query(HouseInfo)
+        .filter(HouseInfo.id == house_id)
+        .with_for_update()
+        .first()
+    )
     if house is None:
         raise HTTPException(status_code=404, detail="房源信息未找到")
     _require_house_owner(house, current_user)
     detail = db.query(HouseDetail).filter(HouseDetail.house_info_id == house_id).first()
     if detail is None:
         raise HTTPException(status_code=404, detail="房源详情未找到")
+    detail_changed = any(getattr(detail, key) != value for key, value in body.model_dump().items())
+    if detail_changed and current_user.userType != 0 and house.ownership_status == "verified":
+        house.ownership_status = "pending"
     for key, value in body.model_dump().items():
         setattr(detail, key, value)
     try:
         db.commit()
         db.refresh(detail)
+        invalidate_house_caches(house_id)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="更新房源详情失败")
@@ -532,7 +490,12 @@ def update_house(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Update a house listing (admin or owner only)."""
-    house = db.get(HouseInfo, house_id)
+    house = (
+        db.query(HouseInfo)
+        .filter(HouseInfo.id == house_id)
+        .with_for_update()
+        .first()
+    )
     if not house:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="房源信息未找到")
 
@@ -544,6 +507,14 @@ def update_house(
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请求体不能为空")
 
+    if update_data.get("available") is True:
+        occupied = (
+            _has_active_contract(db, house_id)
+            or _has_active_rental(db, house_id)
+        )
+        if occupied:
+            raise HTTPException(status_code=409, detail="房源存在待支付合同或有效租约，不能重新上架")
+
     # Ownership fields are server-managed. Only an administrator may transfer
     # a listing to another landlord.
     if current_user.userType != 0:
@@ -551,6 +522,14 @@ def update_house(
         update_data.pop("phone_num", None)
         if not update_data:
             raise HTTPException(status_code=400, detail="房东信息不能由普通用户修改")
+        material_fields = {
+            "title", "region", "block", "community", "area", "direction", "rooms",
+            "price", "rent_type", "decoration", "subway", "image_url", "house_num",
+        }
+        if house.ownership_status == "verified" and any(
+            key in material_fields and getattr(house, key) != value for key, value in update_data.items()
+        ):
+            house.ownership_status = "pending"
 
     try:
         for key, value in update_data.items():
@@ -565,21 +544,18 @@ def update_house(
                 setattr(house, key, value)
 
         db.commit()
-        RedisCache.delete_cache(f"house_info:{house_id}")
-        RedisCache.delete_cache("house_hot_lists")
-        RedisCache.delete_cache("house_new_lists")
-        RedisCache.delete_by_prefix("all_house_infos_count")
-        return APIResponse(data=house.to_dict(), message="房源信息更新成功", code=200)
+        invalidate_house_caches(house_id)
+        return APIResponse(data=serialize_houses(db, [house])[0], message="房源信息更新成功", code=200)
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"更新房源 {house_id} 失败: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="数据库错误")
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
         logger.error(f"更新房源 {house_id} 时发生未知错误: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"更新房源失败: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="更新房源失败")
 
 
 # ----- 8. Delete house -----
@@ -590,25 +566,34 @@ def delete_house(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Delete a house listing (admin or owner only)."""
-    house = db.get(HouseInfo, house_id)
+    house = (
+        db.query(HouseInfo)
+        .filter(HouseInfo.id == house_id)
+        .with_for_update()
+        .first()
+    )
     if not house:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="房源信息未找到")
 
     if current_user.userType != 0 and house.landlord_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to delete this house")
 
+    occupied = (
+        _has_active_contract(db, house_id)
+        or _has_active_rental(db, house_id)
+    )
+    if occupied:
+        raise HTTPException(status_code=409, detail="房源存在待支付合同或有效租约，不能删除")
+
     try:
         db.delete(house)
         db.commit()
-        RedisCache.delete_cache(f"house_info:{house_id}")
-        RedisCache.delete_cache("house_hot_lists")
-        RedisCache.delete_cache("house_new_lists")
-        RedisCache.delete_by_prefix("all_house_infos_count")
+        invalidate_house_caches(house_id)
         return APIResponse(message="房源信息删除成功", code=200)
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(f"删除房源 {house_id} 失败: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"数据库错误: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除房源失败")
 
 
 # ----- 9. Upload image (placeholder) -----
@@ -680,10 +665,13 @@ def house_column_data(db: Session = Depends(get_db)):
 @router.get("/houses/most-viewed", response_model=APIResponse[dict])
 def most_viewed_house(db: Session = Depends(get_db)):
     """Return the single most-viewed house."""
-    house = db.query(HouseInfo).order_by(HouseInfo.page_views.desc()).first()
+    house = db.query(HouseInfo).filter(
+        market_available_house_condition(utc_now_naive()),
+        public_visible_house_condition(),
+    ).order_by(HouseInfo.page_views.desc()).first()
     if not house:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="获取失败")
-    return APIResponse(data=house.to_dict(), message="获取成功")
+    return APIResponse(data=serialize_houses(db, [house])[0], message="获取成功")
 
 
 # ----- 13. Increment views -----
@@ -693,14 +681,18 @@ def increment_view(
     db: Session = Depends(get_db),
 ):
     """Increment the page_view counter for a specific house."""
-    house = db.get(HouseInfo, house_id)
-    if not house:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="不存在该房源")
-
     try:
-        house.page_views = (house.page_views or 0) + 1
+        updated = db.query(HouseInfo).filter(HouseInfo.id == house_id).update(
+            {HouseInfo.page_views: func.coalesce(HouseInfo.page_views, 0) + 1},
+            synchronize_session=False,
+        )
+        if updated == 0:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="不存在该房源")
         db.commit()
         return APIResponse(message="增加成功")
+    except HTTPException:
+        raise
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="增加浏览量失败")
@@ -714,10 +706,39 @@ def landlord_houses(
 ):
     """Return all houses owned by the authenticated landlord."""
     houses = db.query(HouseInfo).filter(HouseInfo.landlord_id == current_user.id).all()
-    house_list = []
-    for house in houses:
-        entry = house.to_dict()
-        entry["isRant"] = bool(db.query(Rental).filter(Rental.house_id == entry["id"]).first())
-        house_list.append(entry)
+    house_list = serialize_houses(db, houses)
+    now = utc_now_naive()
+    for entry in house_list:
+        entry["isRant"] = bool(
+            db.query(Rental.id)
+            .outerjoin(Contract, Rental.contract_id == Contract.id)
+            .filter(Rental.house_id == entry["id"], active_rental_condition(now))
+            .first()
+        )
 
     return APIResponse(data=house_list, message="获取成功")
+
+
+@router.put("/houses/{house_id}/verification", response_model=APIResponse[dict])
+def verify_house_ownership(
+    house_id: int,
+    body: HouseVerificationRequest,
+    db: Session = Depends(get_db),
+    _admin: UserModel = Depends(get_current_admin),
+):
+    """Allow administrators to verify or reject an explicit landlord relation."""
+
+    house = db.query(HouseInfo).filter(HouseInfo.id == house_id).with_for_update().first()
+    if house is None:
+        raise HTTPException(status_code=404, detail="房源信息未找到")
+    if body.ownership_status == "verified" and house.landlord_id is None:
+        raise HTTPException(status_code=409, detail="房源尚未关联平台房东，不能通过归属核验")
+    house.ownership_status = body.ownership_status
+    try:
+        db.commit()
+        db.refresh(house)
+        invalidate_house_caches(house_id)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="更新房源核验状态失败")
+    return APIResponse(data=serialize_houses(db, [house])[0], message="核验状态已更新")

@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import RLock
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 from filelock import FileLock
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -21,8 +22,9 @@ from core.rag.knowledge_files import discover_sources, file_sha256, load_source
 from core.rag.types import RetrievedChunk, SyncReport
 
 logger = logging.getLogger(__name__)
-_MANIFEST_VERSION = 1
-_PARSER_SCHEMA_VERSION = 2
+_MANIFEST_VERSION = 2
+_PARSER_SCHEMA_VERSION = 3
+_INCOMPLETE_STATES = {"updating", "rebuilding"}
 
 
 class VectorStoreServiceV2:
@@ -64,14 +66,26 @@ class VectorStoreServiceV2:
     def _document_id(self, path: Path) -> str:
         return self._digest(path.resolve().relative_to(self.data_path).as_posix().casefold())
 
-    def _load_manifest(self) -> dict[str, Any]:
+    def _empty_manifest(self) -> dict[str, Any]:
+        return {
+            "version": _MANIFEST_VERSION,
+            "collection": self.config["collection_name"],
+            "index_signature": self._index_signature(),
+            "state": "ready",
+            "generation": 0,
+            "documents": {},
+        }
+
+    def _read_manifest(self) -> dict[str, Any]:
         if not self.manifest_path.exists():
-            return {"version": _MANIFEST_VERSION, "collection": self.config["collection_name"],
-                    "index_signature": self._index_signature(), "documents": {}}
+            return self._empty_manifest()
         try:
-            manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            return json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
             raise RuntimeError(f"RAG index manifest is unreadable: {self.manifest_path}") from error
+
+    def _load_manifest(self) -> dict[str, Any]:
+        manifest = self._read_manifest()
         if manifest.get("version") != _MANIFEST_VERSION or not isinstance(manifest.get("documents"), dict):
             raise RuntimeError("RAG index manifest version is unsupported; run a full rebuild")
         if manifest.get("collection") != self.config["collection_name"]:
@@ -79,7 +93,10 @@ class VectorStoreServiceV2:
         if manifest.get("index_signature") != self._index_signature():
             raise RuntimeError("RAG embedding or chunking configuration changed; run a full rebuild")
         if manifest.get("state", "ready") != "ready":
-            raise RuntimeError("RAG index has an incomplete rebuild; run a full rebuild")
+            raise RuntimeError("RAG index has an incomplete rebuild or update; run sync to recover")
+        generation = manifest.get("generation", 0)
+        if not isinstance(generation, int) or generation < 0:
+            raise RuntimeError("RAG index manifest generation is invalid; run a full rebuild")
         return manifest
 
     def _write_manifest(self, manifest: dict[str, Any]) -> None:
@@ -120,29 +137,64 @@ class VectorStoreServiceV2:
             source_files = self._source_files()
             if not source_files and not bool(self.config.get("allow_empty_sync", False)):
                 raise RuntimeError("Knowledge data directory contains no supported files; refusing destructive sync")
+            manifest_exists = self.manifest_path.exists()
+            raw_manifest = self._read_manifest()
+            if not manifest_exists:
+                # Without a manifest there is no safe way to identify and delete
+                # vectors left in an existing persistent collection.
+                rebuild = True
+            if raw_manifest.get("state") in _INCOMPLETE_STATES:
+                logger.warning("rag_index_recovery state=%s action=full_rebuild", raw_manifest.get("state"))
+                rebuild = True
             if rebuild:
-                manifest = {"version": _MANIFEST_VERSION, "collection": self.config["collection_name"],
-                            "index_signature": self._index_signature(), "state": "rebuilding", "documents": {}}
-                self._write_manifest(manifest)
-                self.vector_store.reset_collection()
+                previous_generation = raw_manifest.get("generation", 0)
+                if not isinstance(previous_generation, int) or previous_generation < 0:
+                    previous_generation = 0
+                manifest = self._empty_manifest()
+                manifest.update({
+                    "state": "rebuilding",
+                    "generation": previous_generation,
+                    "update_id": str(uuid4()),
+                })
             else:
                 manifest = self._load_manifest()
             documents: dict[str, Any] = manifest["documents"]
             seen: set[str] = set()
             indexed = skipped = removed_documents = written = removed_chunks = 0
+            planned_updates: list[tuple[Path, str, str, dict[str, Any] | None, list[Document], list[str]]] = []
             for path in source_files:
                 document_id = self._document_id(path)
                 seen.add(document_id)
                 content_hash = file_sha256(path)
                 previous = documents.get(document_id)
-                if previous and previous.get("content_hash") == content_hash:
+                if not rebuild and previous and previous.get("content_hash") == content_hash:
                     skipped += 1
                     continue
                 chunks, chunk_ids = self._chunks_for_file(path, document_id, content_hash)
                 if not chunks:
                     raise RuntimeError(f"Knowledge source produced no chunks: {path}")
+                planned_updates.append((path, document_id, content_hash, previous, chunks, chunk_ids))
+
+            stale_document_ids = sorted(set(documents) - seen) if not rebuild else []
+            if not rebuild and not planned_updates and not stale_document_ids:
+                logger.info(
+                    "rag_index_sync indexed=0 skipped=%s removed_documents=0 written_chunks=0 removed_chunks=0 duration_ms=%s",
+                    skipped, round((perf_counter() - started) * 1000, 2),
+                )
+                return SyncReport(skipped_documents=skipped)
+
+            manifest["state"] = "rebuilding" if rebuild else "updating"
+            manifest["update_id"] = str(uuid4())
+            self._write_manifest(manifest)
+            if rebuild:
+                self.vector_store.reset_collection()
+                documents.clear()
+
+            for path, document_id, content_hash, previous, chunks, chunk_ids in planned_updates:
                 self.vector_store.add_documents(chunks, ids=chunk_ids)
-                obsolete_ids = sorted(set((previous or {}).get("chunk_ids", [])) - set(chunk_ids))
+                obsolete_ids = [] if rebuild else sorted(
+                    set((previous or {}).get("chunk_ids", [])) - set(chunk_ids)
+                )
                 if obsolete_ids:
                     self.vector_store.delete(ids=obsolete_ids)
                     removed_chunks += len(obsolete_ids)
@@ -150,7 +202,7 @@ class VectorStoreServiceV2:
                                           "source": path.relative_to(self.data_path).as_posix()}
                 indexed += 1
                 written += len(chunk_ids)
-            for document_id in sorted(set(documents) - seen):
+            for document_id in stale_document_ids:
                 stale_ids = list(documents[document_id].get("chunk_ids", []))
                 if stale_ids:
                     self.vector_store.delete(ids=stale_ids)
@@ -158,6 +210,8 @@ class VectorStoreServiceV2:
                 del documents[document_id]
                 removed_documents += 1
             manifest["state"] = "ready"
+            manifest["generation"] = int(manifest.get("generation", 0)) + 1
+            manifest.pop("update_id", None)
             self._write_manifest(manifest)
             logger.info("rag_index_sync indexed=%s skipped=%s removed_documents=%s written_chunks=%s removed_chunks=%s duration_ms=%s",
                         indexed, skipped, removed_documents, written, removed_chunks,
@@ -165,8 +219,9 @@ class VectorStoreServiceV2:
             return SyncReport(indexed, skipped, removed_documents, written, removed_chunks)
 
     def search(self, query: str, *, top_k: int | None = None,
-               score_threshold: float | None = None) -> list[RetrievedChunk]:
-        self._load_manifest()
+               score_threshold: float | None = None,
+               knowledge_types: tuple[str, ...] | None = None) -> list[RetrievedChunk]:
+        before = self._load_manifest()
         cleaned_query = query.strip()[:1000]
         if not cleaned_query:
             return []
@@ -174,7 +229,13 @@ class VectorStoreServiceV2:
         threshold = float(self.config.get("relevance_score_threshold", 0.35)
                           if score_threshold is None else score_threshold)
         started = perf_counter()
-        results = self.vector_store.similarity_search_with_relevance_scores(cleaned_query, k=safe_k)
+        search_kwargs: dict[str, Any] = {"k": safe_k}
+        normalized_types = tuple(sorted({value.strip() for value in (knowledge_types or ()) if value.strip()}))
+        if len(normalized_types) == 1:
+            search_kwargs["filter"] = {"knowledge_type": normalized_types[0]}
+        elif normalized_types:
+            search_kwargs["filter"] = {"knowledge_type": {"$in": list(normalized_types)}}
+        results = self.vector_store.similarity_search_with_relevance_scores(cleaned_query, **search_kwargs)
         chunks: list[RetrievedChunk] = []
         for document, score in results:
             relevance = float(score)
@@ -190,7 +251,17 @@ class VectorStoreServiceV2:
                 source_url=str(metadata["source_url"]) if metadata.get("source_url") else None,
                 collected_at=str(metadata["collected_at"]) if metadata.get("collected_at") else None,
                 document_id=str(metadata["document_id"]) if metadata.get("document_id") else None,
+                knowledge_type=str(metadata["knowledge_type"]) if metadata.get("knowledge_type") else None,
+                title=str(metadata["title"]) if metadata.get("title") else None,
+                effective_at=str(metadata["effective_at"]) if metadata.get("effective_at") else None,
+                jurisdiction=str(metadata["jurisdiction"]) if metadata.get("jurisdiction") else None,
+                verification_status=str(metadata["verification_status"]) if metadata.get("verification_status") else None,
+                is_current=bool(metadata["is_current"]) if "is_current" in metadata else None,
+                house_num=str(metadata["house_num"]) if metadata.get("house_num") else None,
             ))
+        after = self._load_manifest()
+        if after.get("generation", 0) != before.get("generation", 0):
+            raise RuntimeError("RAG index changed during search; retry the query")
         logger.info("rag_search query_hash=%s candidates=%s accepted=%s threshold=%s duration_ms=%s",
                     self._digest(cleaned_query)[:12], len(results), len(chunks), threshold,
                     round((perf_counter() - started) * 1000, 2))

@@ -576,7 +576,7 @@ INSERT INTO `house_info` VALUES (44, '独栋·湘江悦家 麓隐桐溪·大王�
 INSERT INTO `house_info` VALUES (45, '整租·融城花苑 3室2厅 南', '雨花', '井湾子', '融城花苑', 99, '南', '3室2厅', 1300, '整租', '精装', 0, 1, 0, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/1e7e4c632f5948dd95829709a06a904e.jpg', '2025-05-19', 523, '赵先生', '19112340029', '1884114366576459776');
 INSERT INTO `house_info` VALUES (46, '独栋·华佑e家 万国城店 无中介费可月付 润和珠江星环马厂地铁站 万国城两室 2室2厅', NULL, NULL, '楚天世纪城', 76, NULL, '2室2厅', 2208, '整租', '精装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/0e54185af1744ef0ab60029cb130b32c.jpg', '2025-05-19', 1178, '华佑e家', '19212340030', '92145');
 INSERT INTO `house_info` VALUES (47, '整租·九龙小区 3室1厅 北', '雨花', '树木岭', '九龙小区', 73, '北', '2室1厅1卫', 1800, '整租', '精装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/50f1f56b2b5c41d18dc84fe8dc2be595.jpg', '2025-05-15', 1, '张先生', '13630278915', '10001');
-INSERT INTO `house_info` VALUES (48, '合租·盘锦小区 2室1厅 南', '岳麓', '德政园', '盘锦小区', 83, '南', '2室1厅1卫', 2000, '整租', '简装', 0, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/8bdaf9c736aa47a49bf70669672566f6.jpg', '2025-05-15', 1, '张先生', '13630278915', '10001');
+INSERT INTO `house_info` VALUES (48, '合租·盘锦小区 2室1厅 南', '芙蓉', '德政园', '盘锦小区', 83, '南', '2室1厅1卫', 2000, '合租', '简装', 0, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/8bdaf9c736aa47a49bf70669672566f6.jpg', '2025-05-15', 1, '张先生', '13630278915', '10001');
 INSERT INTO `house_info` VALUES (49, '整租·黄金一区 3室2厅 北', '天心', '泉塘', '黄金一区', 103, '北', '2室1厅1卫', 2400, '整租', '精装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/1e7e4c632f5948dd95829709a06a904e.jpg', '2025-05-15', NULL, '张先生', '13630278915', '10001');
 INSERT INTO `house_info` VALUES (50, '整租·桃花村 3室1厅 南北', '岳麓', '桃花村', '桃花村', 62, '南北', '2室1厅1卫', 1000, '整租', '简装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/385216b3a0474b7d98cfa5f367a11019.jpg', '2025-05-15', NULL, '张先生', '13630278915', '10001');
 INSERT INTO `house_info` VALUES (51, '整租·锦源小区 1室1厅 东西', '芙蓉', '树木岭', '锦源小区', 50, '东西', '2室1厅1卫', 800, '整租', '简装', 1, 1, 1, 'https://flaskhousesystem.oss-cn-hangzhou.aliyuncs.com/property_detail_pending/0e54185af1744ef0ab60029cb130b32c.jpg', '2025-05-15', 2, '张先生', '13630278915', '10001');
@@ -729,46 +729,6 @@ CREATE TABLE `rental`  (
 -- ----------------------------
 -- Records of rental
 -- ----------------------------
-INSERT INTO `rental` VALUES (10, 'Ylfmoonn', '赵租房', 25, '2025-05-31 00:00:00');
-INSERT INTO `rental` VALUES (11, 'Ylfmoonn', '杨公寓', 43, '2025-05-31 00:00:00');
-INSERT INTO `rental` VALUES (12, 'Ylfmoonn', '穗露公寓', 34, '2025-05-31 00:00:00');
-INSERT INTO `rental` VALUES (13, 'Ylfmoonn', '张先生', 1, '2025-06-20 00:00:00');
-INSERT INTO `rental` VALUES (14, 'Lappand', '赵先生', 45, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (15, 'Lappand', '陈先生', 41, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (16, 'luyue', '孙女士', 32, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (17, 'Ylfmoonn', '穗露公寓', 34, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (18, 'Lappand', '美美公寓', 38, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (19, 'Lappand', '刘先生', 21, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (20, 'luyue', '刘先生', 21, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (21, 'Lappand', '赵租房', 25, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (22, 'luyue', '赵租房', 25, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (23, 'luyue', '湘江悦家', 44, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (24, 'luyue', '华佑e家', 46, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (25, 'luyue', '房东直租', 5, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (26, 'luyue', '张先生', 1, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (27, 'luyue', '包租婆HOUSE', 24, '2026-04-30 00:00:00');
-INSERT INTO `rental` VALUES (28, 'Lappand', '杨公寓', 43, '2026-05-02 00:00:00');
-INSERT INTO `rental` VALUES (29, 'luyue', '杨公寓', 43, '2026-05-02 00:00:00');
-INSERT INTO `rental` VALUES (30, 'luyue', '吴先生', 27, '2026-05-02 00:00:00');
-INSERT INTO `rental` VALUES (31, 'Lappand', '赵先生', 45, '2026-05-08 00:00:00');
-INSERT INTO `rental` VALUES (32, 'luyue', '张先生', 51, '2026-05-09 00:00:00');
-INSERT INTO `rental` VALUES (33, 'luyue', '房东直租', 5, '2026-05-09 00:00:00');
-INSERT INTO `rental` VALUES (34, 'luyue', '房东直租', 5, '2026-05-09 00:00:00');
-INSERT INTO `rental` VALUES (35, 'tenant_cd0404', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (36, 'tenant_b0785c', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (37, 'tenant_e6b066', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (38, 'tenant_c8ee71', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (39, 'tenant_95d716', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (40, 'tenant_1a76bc', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (41, 'tenant_cb641e', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (42, 'tenant_de8918', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (43, 'tenant_849f0d', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (44, 'tenant_9b7c20', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (45, 'tenant_6c575f', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (46, 'tenant_e9f585', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (47, 'tenant_ed9b4e', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (48, 'tenant_be8486', '测试房东', 1, '2025-06-15 00:00:00');
-INSERT INTO `rental` VALUES (49, 'luyue', '吴先生', 27, '2026-05-11 00:00:00');
 
 -- ----------------------------
 -- Table structure for repair_complaint
@@ -1016,6 +976,12 @@ CREATE TABLE `ai_agent_run` (
   `status` varchar(20) NOT NULL DEFAULT 'running',
   `cancel_requested` tinyint(1) NOT NULL DEFAULT 0,
   `error_code` varchar(50) NULL,
+  `attempt_count` int NOT NULL DEFAULT 1,
+  `heartbeat_at` datetime NULL,
+  `lease_token` varchar(36) NULL,
+  `lease_expires_at` datetime NULL,
+  `next_retry_at` datetime NULL,
+  `finished_at` datetime NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`request_id`),
@@ -1024,18 +990,135 @@ CREATE TABLE `ai_agent_run` (
   KEY `ix_ai_agent_run_user_id` (`user_id`),
   KEY `ix_ai_agent_run_session_id` (`session_id`),
   KEY `ix_ai_agent_run_status` (`status`),
+  KEY `ix_ai_agent_run_status_lease` (`status`, `lease_expires_at`),
+  KEY `ix_ai_agent_run_status_retry` (`status`, `next_retry_at`),
   CONSTRAINT `fk_ai_agent_run_user` FOREIGN KEY (`user_id`) REFERENCES `user_info` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ai_agent_run_session` FOREIGN KEY (`session_id`) REFERENCES `chat_session` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ai_agent_run_user_message` FOREIGN KEY (`user_message_id`) REFERENCES `chat_message` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_ai_agent_run_assistant_message` FOREIGN KEY (`assistant_message_id`) REFERENCES `chat_message` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+DROP TABLE IF EXISTS `rag_failure_case`;
+CREATE TABLE `rag_failure_case` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `request_id` varchar(36) NOT NULL,
+  `user_id` int NOT NULL,
+  `origin` varchar(20) NOT NULL DEFAULT 'user_feedback',
+  `query_hash` varchar(64) NOT NULL,
+  `sanitized_query` text NULL,
+  `route` varchar(30) NULL,
+  `failure_type` varchar(40) NOT NULL,
+  `index_signature` varchar(64) NULL,
+  `retrieval_trace` json NULL,
+  `feedback` text NULL,
+  `review_status` varchar(20) NOT NULL DEFAULT 'pending',
+  `expected_route` varchar(30) NULL,
+  `expected_sources` json NULL,
+  `review_notes` text NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `reviewed_at` datetime NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rag_failure_case_request_id` (`request_id`),
+  KEY `ix_rag_failure_case_user_id` (`user_id`),
+  KEY `ix_rag_failure_case_review_status` (`review_status`),
+  CONSTRAINT `fk_rag_failure_case_run` FOREIGN KEY (`request_id`) REFERENCES `ai_agent_run` (`request_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_rag_failure_case_user` FOREIGN KEY (`user_id`) REFERENCES `user_info` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 DROP TABLE IF EXISTS `alembic_version`;
+ALTER TABLE `appointment`
+  ADD COLUMN `user_id` int NULL,
+  ADD COLUMN `house_id` int UNSIGNED NULL,
+  ADD COLUMN `landlord_id` int NULL,
+  ADD COLUMN `status` varchar(20) NOT NULL DEFAULT 'pending',
+  ADD COLUMN `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD INDEX `ix_appointment_user_time` (`user_id`, `time`),
+  ADD INDEX `ix_appointment_landlord_time` (`landlord_id`, `time`),
+  ADD INDEX `ix_appointment_house_time` (`house_id`, `time`),
+  ADD INDEX `ix_appointment_status` (`status`),
+  ADD CONSTRAINT `fk_appointment_user` FOREIGN KEY (`user_id`) REFERENCES `user_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_appointment_house` FOREIGN KEY (`house_id`) REFERENCES `house_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_appointment_landlord` FOREIGN KEY (`landlord_id`) REFERENCES `user_info` (`id`) ON DELETE SET NULL;
+
 CREATE TABLE `alembic_version` (
   `version_num` varchar(32) NOT NULL,
   PRIMARY KEY (`version_num`)
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+-- Normalize legacy rows that inherited the new default state. This mirrors
+-- Alembic revision 009_legacy_state_cleanup and does not guess rental history.
+UPDATE `contract`
+SET `expires_at` = COALESCE(DATE_ADD(`currentDate`, INTERVAL 30 MINUTE), CURRENT_TIMESTAMP)
+WHERE `payment_status` = 'pending' AND `expires_at` IS NULL;
+UPDATE `contract`
+SET `payment_status` = 'expired'
+WHERE `payment_status` = 'pending' AND `expires_at` <= CURRENT_TIMESTAMP;
+UPDATE `appointment`
+SET `status` = 'expired', `updated_at` = CURRENT_TIMESTAMP
+WHERE `status` = 'pending' AND `time` <= CURRENT_TIMESTAMP;
+
+-- Keep imported listing titles consistent with the structured `rooms` field.
+-- This mirrors Alembic revision 010_listing_title_consistency.
+UPDATE `house_info` SET `title` = '整租·九龙小区 2室1厅 北'
+WHERE `id` = 47 AND `title` = '整租·九龙小区 3室1厅 北';
+UPDATE `house_info` SET `title` = '整租·黄金一区 2室1厅 北'
+WHERE `id` = 49 AND `title` = '整租·黄金一区 3室2厅 北';
+UPDATE `house_info` SET `title` = '整租·桃花村 2室1厅 南北'
+WHERE `id` = 50 AND `title` = '整租·桃花村 3室1厅 南北';
+UPDATE `house_info` SET `title` = '整租·锦源小区 2室1厅 东西'
+WHERE `id` = 51 AND `title` = '整租·锦源小区 1室1厅 东西';
+
+-- Listing capability and payment reconciliation fields (revision 011).
+ALTER TABLE `house_info`
+  ADD COLUMN `ownership_status` varchar(20) NOT NULL DEFAULT 'pending';
+ALTER TABLE `contract`
+  MODIFY COLUMN `payment_status` varchar(32) NULL DEFAULT 'pending',
+  ADD COLUMN `payment_notified_at` datetime NULL,
+  ADD COLUMN `payment_notify_trade_no` varchar(64) NULL,
+  ADD COLUMN `payment_notify_amount` decimal(10,2) NULL,
+  ADD COLUMN `reconciliation_reason` varchar(255) NULL;
+ALTER TABLE `rental`
+  ADD COLUMN `source` varchar(20) NOT NULL DEFAULT 'legacy';
+
+-- Historical identifiers remain nullable. Clear only demonstrably invalid
+-- references; never assign imported listings to an arbitrary administrator.
+UPDATE `contract` AS c
+LEFT JOIN `user_info` AS u ON u.`id` = c.`landlordId`
+SET c.`landlordId` = NULL
+WHERE c.`landlordId` IS NOT NULL AND u.`id` IS NULL;
+
+-- Payment-domain constraints (revision 012). The dump contains no known
+-- orphans; deployments upgrading existing data must run Alembic's preflight.
+ALTER TABLE `contract`
+  MODIFY COLUMN `houseId` int UNSIGNED NULL,
+  ADD INDEX `ix_contract_tenantId` (`tenantId`),
+  ADD INDEX `ix_contract_landlordId` (`landlordId`),
+  ADD CONSTRAINT `fk_contract_tenant_user` FOREIGN KEY (`tenantId`) REFERENCES `user_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_contract_landlord_user` FOREIGN KEY (`landlordId`) REFERENCES `user_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_contract_house` FOREIGN KEY (`houseId`) REFERENCES `house_info` (`id`) ON DELETE RESTRICT;
+ALTER TABLE `house_info`
+  ADD CONSTRAINT `fk_house_landlord_user` FOREIGN KEY (`landlord_id`) REFERENCES `user_info` (`id`) ON DELETE SET NULL;
+ALTER TABLE `rental`
+  MODIFY COLUMN `house_id` int UNSIGNED NOT NULL,
+  ADD INDEX `ix_rental_house_id` (`house_id`),
+  ADD CONSTRAINT `fk_rental_tenant_user` FOREIGN KEY (`tenant_id`) REFERENCES `user_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_rental_landlord_user` FOREIGN KEY (`landlord_id`) REFERENCES `user_info` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_rental_contract` FOREIGN KEY (`contract_id`) REFERENCES `contract` (`id`) ON DELETE RESTRICT,
+  ADD CONSTRAINT `fk_rental_house` FOREIGN KEY (`house_id`) REFERENCES `house_info` (`id`) ON DELETE RESTRICT;
+
+-- Manual ownership verification and payment reconciliation audit (revision 013).
+UPDATE `house_info`
+SET `ownership_status` = 'pending'
+WHERE `ownership_status` = 'verified';
+ALTER TABLE `contract`
+  ADD COLUMN `reconciled_at` datetime NULL,
+  ADD COLUMN `reconciled_by` int NULL,
+  ADD COLUMN `reconciliation_resolution` varchar(32) NULL,
+  ADD COLUMN `reconciliation_note` varchar(500) NULL,
+  ADD INDEX `ix_contract_reconciled_by` (`reconciled_by`),
+  ADD CONSTRAINT `fk_contract_reconciled_by_user` FOREIGN KEY (`reconciled_by`) REFERENCES `user_info` (`id`) ON DELETE SET NULL;
+
 INSERT INTO `alembic_version` (`version_num`)
-VALUES ('006_ai_agent_runs');
+VALUES ('013_reconciliation_workflow');
 
 SET FOREIGN_KEY_CHECKS = 1;

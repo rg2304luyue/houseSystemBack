@@ -4,7 +4,10 @@ import sys
 
 from filelock import FileLock, Timeout
 from langchain_core.documents import Document
+import pytest
 
+from app.services.query_router import QueryRoute, route_query
+from core.rag.evaluate import evaluate_answer_contract, recall_at_k, reciprocal_rank
 from core.rag.knowledge_files import load_source
 from core.rag.retrieval_service import RagRetrievalService
 from core.rag.types import RetrievedChunk
@@ -30,7 +33,7 @@ class FakeVectorStore:
         self.documents.clear()
         self.reset_count += 1
 
-    def similarity_search_with_relevance_scores(self, query, k):
+    def similarity_search_with_relevance_scores(self, query, k, **kwargs):
         return self.search_results[:k]
 
 
@@ -77,7 +80,30 @@ def test_listing_txt_is_split_with_citation_metadata(tmp_path):
     assert documents[0].metadata["house_num"] == "CS-PUBLIC-20260806-001"
     assert documents[0].metadata["source_url"] == "https://example.test/1"
     assert documents[0].metadata["collected_at"] == "2026-08-06"
+    assert documents[0].metadata["knowledge_type"] == "historical_snapshot"
+    assert documents[0].metadata["verification_status"] == "unverified_public_snapshot"
+    assert documents[0].metadata["is_current"] is False
     assert documents[1].metadata["region"] == "天心区"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("推荐岳麓区2000元左右当前可租的房源", QueryRoute.SQL),
+        ("签租房合同有哪些注意事项？", QueryRoute.RAG),
+        ("岳麓区有哪些公开房源快照？", QueryRoute.HISTORICAL_SNAPSHOT),
+        ("当前房源和历史快照有什么差异？", QueryRoute.MIXED),
+        ("长沙今天天气怎么样？", QueryRoute.WEATHER),
+        ("当前长沙天气怎么样？", QueryRoute.WEATHER),
+        ("你好", QueryRoute.GENERAL),
+    ],
+)
+def test_query_router_enforces_data_source_boundaries(query, expected):
+    assert route_query(query) is expected
+
+
+def test_query_router_inherits_short_follow_up():
+    assert route_query("这套？", ["推荐岳麓区当前可租的房源"]) is QueryRoute.SQL
 
 
 def test_sync_is_idempotent_and_handles_update_and_delete(tmp_path):
@@ -111,6 +137,7 @@ def test_embedding_model_change_requires_rebuild_and_accepts_new_signature(tmp_p
     rag = service(tmp_path, store)
     (rag.data_path / "source.txt").write_text("可索引内容", encoding="utf-8")
     rag.sync_documents()
+    resets_before_rebuild = store.reset_count
     changed = config()
     changed["embedding_model"] = "fake-embedding-v2"
     changed_service = VectorStoreServiceV2(
@@ -126,7 +153,7 @@ def test_embedding_model_change_requires_rebuild_and_accepts_new_signature(tmp_p
         raise AssertionError("configuration drift must require rebuild")
 
     report = changed_service.sync_documents(rebuild=True)
-    assert store.reset_count == 1
+    assert store.reset_count == resets_before_rebuild + 1
     assert report.indexed_documents == 1
 
 
@@ -183,7 +210,7 @@ def test_agent_tool_payload_is_structured_and_safe(monkeypatch):
         "query": "测试", "grounded": True,
         "chunks": [{"chunk_id": "c1", "content": "证据", "score": 0.9, "source": "source.txt"}],
     }})()
-    fake_service = type("Service", (), {"retrieve": lambda self, query: result})()
+    fake_service = type("Service", (), {"retrieve": lambda self, query, **kwargs: result})()
     monkeypatch.setattr(react_tools, "_rag_service", lambda: fake_service)
 
     payload = json.loads(react_tools._rental_knowledge_payload(" 测试 "))
@@ -192,23 +219,27 @@ def test_agent_tool_payload_is_structured_and_safe(monkeypatch):
     assert payload["chunks"][0]["source"] == "source.txt"
 
 
-def test_final_answer_enforces_grounding_and_citation_bounds():
+def test_final_answer_enforces_grounding_and_citation_bounds(monkeypatch):
+    monkeypatch.setattr("app.services.react_agent.review_grounded_answer", lambda *_args: False)
     from langchain_core.messages import AIMessage, ToolMessage
     from app.services.react_agent import _final_answer
 
     no_evidence = ToolMessage(
         content=json.dumps({"grounded": False, "chunks": []}),
-        tool_call_id="call-1", name="search_rental_knowledge",
+        tool_call_id="call-1", name="search_rental_guidance",
     )
     evidence = ToolMessage(
-        content=json.dumps({"grounded": True, "chunks": [{"source": "source.txt"}]}),
-        tool_call_id="call-2", name="search_rental_knowledge",
+        content=json.dumps({
+            "grounded": True,
+            "chunks": [{"source": "source.txt", "content": "月租为1800元"}],
+        }),
+        tool_call_id="call-2", name="search_rental_guidance",
     )
 
-    assert "没有足够可靠的证据" in _final_answer([no_evidence, AIMessage(content="我猜是1800元")])
-    assert "未通过校验" in _final_answer([evidence, AIMessage(content="答案见[2]")])
+    assert "不足以确认" in _final_answer([no_evidence, AIMessage(content="我猜是1800元")])
+    assert "先把能确认的依据" in _final_answer([evidence, AIMessage(content="答案见[2]")])
     assert _final_answer([evidence, AIMessage(content="月租为1800元[1]")]) == "月租为1800元[1]"
-    assert "无法唯一编号" in _final_answer([evidence, evidence, AIMessage(content="月租为1800元[1]")])
+    assert "还没能对应清楚" in _final_answer([evidence, evidence, AIMessage(content="月租为1800元[1]")])
 
 
 def test_empty_source_directory_fails_closed(tmp_path):
@@ -226,21 +257,25 @@ def test_empty_source_directory_fails_closed(tmp_path):
 def test_streaming_path_validates_tool_evidence(monkeypatch):
     from langchain_core.messages import AIMessage, ToolMessage
     from app.services import react_agent
+    from app.services.query_router import QueryRoute
 
     class FakeAgent:
         def stream(self, *args, **kwargs):
             yield {"model": {"messages": [AIMessage(content="", tool_calls=[{
-                "name": "search_rental_knowledge", "args": {"query": "x"}, "id": "call-1"
+                "name": "search_rental_guidance", "args": {"query": "x"}, "id": "call-1"
             }])]}}
             yield {"tools": {"messages": [ToolMessage(
-                content=json.dumps({"grounded": False, "chunks": []}),
-                tool_call_id="call-1", name="search_rental_knowledge",
+                content=json.dumps({"query": "x", "grounded": False, "chunks": []}),
+                tool_call_id="call-1", name="search_rental_guidance",
             )]}}
             yield {"model": {"messages": [AIMessage(content="我猜答案是1800元")]}}
 
-    monkeypatch.setattr(react_agent, "get_react_agent", lambda: FakeAgent())
+    monkeypatch.setattr(react_agent, "get_react_agent", lambda *_args, **_kwargs: FakeAgent())
+    monkeypatch.setattr(
+        react_agent, "_route_for_messages", lambda _messages: QueryRoute.RAG
+    )
     events = list(react_agent.stream_react_agent([{"role": "user", "content": "x"}]))
-    assert "没有足够可靠的证据" in events[-1]["content"]
+    assert "不足以确认" in events[-1]["content"]
 
 
 def test_interrupted_rebuild_blocks_search_and_can_recover(tmp_path):
@@ -267,6 +302,68 @@ def test_interrupted_rebuild_blocks_search_and_can_recover(tmp_path):
     store.reset_collection = original_reset
     assert rag.sync_documents(rebuild=True).indexed_documents == 1
     assert rag.search("房源") == []
+
+
+def test_interrupted_incremental_update_fails_closed_and_auto_recovers(tmp_path):
+    store = FakeVectorStore()
+    rag = service(tmp_path, store)
+    source = rag.data_path / "source.txt"
+    source.write_text("第一版可靠资料", encoding="utf-8")
+    rag.sync_documents()
+    resets_before_failure = store.reset_count
+    first_generation = json.loads(rag.manifest_path.read_text(encoding="utf-8"))["generation"]
+    source.write_text("第二版可靠资料", encoding="utf-8")
+    original_add = store.add_documents
+    store.add_documents = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("add failed"))
+
+    with pytest.raises(RuntimeError, match="add failed"):
+        rag.sync_documents()
+    assert json.loads(rag.manifest_path.read_text(encoding="utf-8"))["state"] == "updating"
+    with pytest.raises(RuntimeError, match="incomplete"):
+        rag.search("资料")
+
+    store.add_documents = original_add
+    report = rag.sync_documents()
+    recovered = json.loads(rag.manifest_path.read_text(encoding="utf-8"))
+    assert report.indexed_documents == 1
+    assert store.reset_count == resets_before_failure + 1
+    assert recovered["state"] == "ready"
+    assert recovered["generation"] == first_generation + 1
+
+
+def test_search_rejects_generation_change_during_query(tmp_path):
+    store = FakeVectorStore()
+    rag = service(tmp_path, store)
+    (rag.data_path / "source.txt").write_text("可靠资料", encoding="utf-8")
+    rag.sync_documents()
+
+    def mutate_generation(query, k, **kwargs):
+        manifest = json.loads(rag.manifest_path.read_text(encoding="utf-8"))
+        manifest["generation"] += 1
+        rag._write_manifest(manifest)
+        return []
+
+    store.similarity_search_with_relevance_scores = mutate_generation
+    with pytest.raises(RuntimeError, match="changed during search"):
+        rag.search("资料")
+
+
+def test_ranking_and_answer_contract_metrics_are_deterministic():
+    assert reciprocal_rank(["a", "b", "c"], ["b"]) == 0.5
+    assert recall_at_k(["a", "b", "c"], ["b", "c"], 2) == 0.5
+    metrics = evaluate_answer_contract(
+        "押金按合同约定退还[1]",
+        ["合同应明确押金金额及退还条件"],
+        required_facts=[{
+            "answer_terms": ["押金", "退还"],
+            "evidence_terms": ["押金", "退还条件"],
+        }],
+    )
+    assert metrics == {
+        "citation_validity": 1.0,
+        "citation_faithfulness": 1.0,
+        "fact_consistency": 1.0,
+    }
 
 
 def test_index_file_lock_rejects_concurrent_writer(tmp_path):
@@ -344,7 +441,7 @@ def test_streaming_agent_exposes_safe_deepseek_message(monkeypatch):
         def stream(self, *args, **kwargs):
             raise AuthenticationError("private provider detail")
 
-    monkeypatch.setattr(react_agent, "get_react_agent", lambda: FailedAgent())
+    monkeypatch.setattr(react_agent, "get_react_agent", lambda *_args, **_kwargs: FailedAgent())
     try:
         list(react_agent.stream_react_agent([{"role": "user", "content": "你好"}]))
     except RuntimeError as error:

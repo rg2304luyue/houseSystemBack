@@ -10,6 +10,6 @@ chunk_size: 500
 chunk_overlap: 60
 
 retrieval_k: 6
-relevance_score_threshold: 0.58
+relevance_score_threshold: 0.50
 max_context_chars: 8000
 separators_safe: ["\n\n", "\n", "\u3002", "\uff01", "\uff1f", ".", "!", "?", " ", ""]

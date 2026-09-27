@@ -7,4 +7,5 @@ from app.models.house import HouseInfo
 from app.models.house_detail import HouseDetail
 from app.models.message import MessageModel
 from app.models.rental import Rental
+from app.models.rag_feedback import RAGFailureCase
 from app.models.user import UserModel

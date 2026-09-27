@@ -15,6 +15,13 @@ class RetrievedChunk:
     source_url: str | None = None
     collected_at: str | None = None
     document_id: str | None = None
+    knowledge_type: str | None = None
+    title: str | None = None
+    effective_at: str | None = None
+    jurisdiction: str | None = None
+    verification_status: str | None = None
+    is_current: bool | None = None
+    house_num: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in asdict(self).items() if value is not None}

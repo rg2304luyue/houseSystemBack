@@ -13,8 +13,9 @@ from langchain_core.messages import AIMessage, ToolMessage
 from app.main import app
 from app.core.time import utc_now_naive
 from app.api.v1.payments import _confirm_paid, _release_reservation, expire_payment
-from app.api.v1.users import ChangePasswordRequest, change_password, delete_user
-from app.api.v1.houses import HouseDetailRequest, _require_house_owner
+from app.api.v1.users import ChangePasswordRequest, _public_user, change_password, delete_user
+from app.api.v1.houses import HouseDetailRequest, _require_house_owner, get_house_detail
+from app.api.v1.appointments import CreateAppointmentRequest, create_appointment
 from app.api.v1 import auth, chat_ai, messages
 from app.services import react_agent
 from app.services.react_tools import _house_payload
@@ -25,6 +26,8 @@ from app.services.house_agent import (
     parse_house_constraints,
     parse_rent_type,
 )
+from app.services.occupancy import pending_deadline
+from app.services.house_capabilities import capability_fields
 
 
 def test_password_hashing_uses_bcrypt_and_handles_invalid_stored_values():
@@ -50,12 +53,145 @@ def test_fastapi_health_and_expected_routes_exist():
     assert "/api/v1/chat-ai/sessions" in paths
     assert "/api/v1/chat-ai/chat/stream" in paths
     assert "/api/v1/payments/{contract_id}/mock-confirm" in paths
+    assert "/api/v1/payments/reconciliation" in paths
+    assert "/api/v1/payments/{contract_id}/reconcile" in paths
     assert "/api/v1/houses/{house_id}/detail" in paths
     assert "/api/v1/auth/email-code" in paths
     assert "/api/v1/auth/email-code/login" in paths
     assert "/api/v1/messages" in paths
     assert "/api/v1/messages/received" in paths
     assert "/api/v1/chat-ai/runs/{request_id}/cancel" in paths
+
+
+def test_house_search_rejects_invalid_price_ranges():
+    client = TestClient(app)
+    assert client.get("/api/v1/houses/?min_price=-1").status_code == 422
+    response = client.get("/api/v1/houses/?min_price=2000&max_price=1000")
+    assert response.status_code == 422
+    assert "最低租金" in response.json()["detail"]
+
+
+def test_legacy_listing_without_linked_landlord_can_be_appointed():
+    house = SimpleNamespace(
+        id=26,
+        available=1,
+        ownership_status="pending",
+        landlord_id=None,
+        title="独栋·保利天禧 1室1厅",
+        community="保利天禧",
+    )
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    availability_query = MagicMock()
+    availability_query.filter.return_value.first.return_value = (26,)
+    participant_query = MagicMock()
+    participant_query.filter.return_value.order_by.return_value.with_for_update.return_value.all.return_value = []
+    conflict_query = MagicMock()
+    conflict_query.filter.return_value.first.return_value = None
+    db = MagicMock()
+    db.query.side_effect = [house_query, availability_query, participant_query, conflict_query]
+    db.refresh.side_effect = lambda appointment: setattr(appointment, "id", 1)
+    current_user = SimpleNamespace(id=11, name="租客", phone="13800000000")
+
+    response = create_appointment(
+        CreateAppointmentRequest(
+            house_id=26,
+            time=(utc_now_naive() + timedelta(days=1)).isoformat(),
+        ),
+        db=db,
+        current_user=current_user,
+    )
+
+    appointment = db.add.call_args.args[0]
+    assert appointment.house_id == 26
+    assert appointment.landlord_id is None
+    assert "平台将协助联系" in response.message
+    db.commit.assert_called_once()
+
+
+def test_occupied_listing_cannot_be_appointed_through_direct_api():
+    house = SimpleNamespace(
+        id=25,
+        available=1,
+        ownership_status="pending",
+        landlord_id=None,
+        title="整租·黄金一区 1室1厅 南",
+        community="黄金一区",
+    )
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    availability_query = MagicMock()
+    availability_query.filter.return_value.first.return_value = None
+    db = MagicMock()
+    db.query.side_effect = [house_query, availability_query]
+
+    with pytest.raises(HTTPException) as exc:
+        create_appointment(
+            CreateAppointmentRequest(
+                house_id=25,
+                time=(utc_now_naive() + timedelta(days=1)).isoformat(),
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=11, name="租客", phone="13800000000"),
+        )
+
+    assert exc.value.status_code == 409
+    assert "预订或出租" in exc.value.detail
+    db.add.assert_not_called()
+
+
+def test_rejected_listing_cannot_be_appointed():
+    house = SimpleNamespace(id=27, available=1, ownership_status="rejected")
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    db = MagicMock()
+    db.query.return_value = house_query
+
+    with pytest.raises(HTTPException) as exc:
+        create_appointment(
+            CreateAppointmentRequest(
+                house_id=27,
+                time=(utc_now_naive() + timedelta(days=1)).isoformat(),
+            ),
+            db=db,
+            current_user=SimpleNamespace(id=11, name="租客", phone="13800000000"),
+        )
+
+    assert exc.value.status_code == 409
+    assert "核验未通过" in exc.value.detail
+
+
+def test_house_capability_matrix_for_legacy_and_verified_listings():
+    legacy = SimpleNamespace(ownership_status="pending", landlord_id=None, price=1500)
+    verified = SimpleNamespace(ownership_status="verified", landlord_id=3, price=1500)
+    rejected = SimpleNamespace(ownership_status="rejected", landlord_id=3, price=1500)
+
+    assert capability_fields(legacy, market_available=True)["can_appoint"] is True
+    assert capability_fields(legacy, market_available=True)["can_sign"] is False
+    assert capability_fields(verified, market_available=True)["can_sign"] is True
+    assert capability_fields(rejected, market_available=True)["can_sign"] is False
+    assert capability_fields(rejected, market_available=True)["can_appoint"] is False
+
+
+def test_missing_optional_house_detail_returns_empty_payload():
+    detail_query = MagicMock()
+    detail_query.filter.return_value.first.return_value = None
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(id=42, ownership_status="pending")
+    db.query.return_value = detail_query
+
+    response = get_house_detail(42, db=db)
+
+    assert response.data["house_info_id"] == 42
+    assert response.data["photos"] == []
+    assert response.message == "暂无扩展详情"
+
+
+def test_legacy_pending_contract_gets_a_bounded_deadline():
+    created_at = utc_now_naive() - timedelta(days=1)
+    contract = SimpleNamespace(expires_at=None, currentDate=created_at)
+
+    assert pending_deadline(contract) == created_at + timedelta(minutes=30)
 
 
 def test_password_login_accepts_valid_credentials_and_rejects_invalid_ones(monkeypatch):
@@ -175,6 +311,7 @@ def test_agent_house_payload_excludes_private_landlord_fields():
 
 
 def test_react_stream_exposes_status_and_final_only(monkeypatch):
+    monkeypatch.setattr(react_agent, "review_grounded_answer", lambda *_args: False)
     class FakeAgent:
         def stream(self, *_args, **_kwargs):
             yield {"model": {"messages": [AIMessage(
@@ -182,8 +319,17 @@ def test_react_stream_exposes_status_and_final_only(monkeypatch):
                 tool_calls=[{"name": "search_houses_by_criteria", "args": {"region": "芙蓉"}, "id": "call-1"}],
             )]}}
             yield {"tools": {"messages": [ToolMessage(
-                content='{"phone_num":"PRIVATE_RESULT"}',
+                content=(
+                    '{"tool_kind":"criteria_search","applied_filters":'
+                    '{"region":"芙蓉","min_price":null,"max_price":null,'
+                    '"min_area":null,"max_area":null,"rooms":null,'
+                    '"rent_type":null,"subway":null,"decoration":null},'
+                    '"total_count":1,"returned_count":1,"has_more":false,'
+                    '"houses":[{"id":8,"title":"公开房源","region":"芙蓉",'
+                    '"price":1800,"verification_status":"verified"}]}'
+                ),
                 tool_call_id="call-1",
+                name="search_houses_by_criteria",
             )]}}
             yield {"model": {"messages": [AIMessage(content="公开最终答复")]}}
 
@@ -195,7 +341,8 @@ def test_react_stream_exposes_status_and_final_only(monkeypatch):
     serialized = str(events)
 
     assert [event["type"] for event in events] == ["status", "status", "answer"]
-    assert events[-1]["content"] == "公开最终答复"
+    assert "公开房源" in events[-1]["content"]
+    assert "房源编号：8" in events[-1]["content"]
     assert "PRIVATE_DRAFT" not in serialized
     assert "PRIVATE_RESULT" not in serialized
     assert "search_houses_by_criteria" not in serialized
@@ -235,18 +382,51 @@ def test_confirm_paid_creates_rental_once():
     assert rental.landlord_id == 4
 
 
-def test_release_reservation_restores_house():
+def test_release_reservation_preserves_listing_switch():
     house = SimpleNamespace(available=0)
     db = MagicMock()
-    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = house
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    empty_query = MagicMock()
+    empty_query.outerjoin.return_value = empty_query
+    empty_query.filter.return_value.first.return_value = None
+    db.query.side_effect = [house_query, empty_query, empty_query]
     contract = SimpleNamespace(
-        payment_status="pending", houseId=8, tenantName="tenant"
+        id=7, payment_status="pending", houseId=8, tenantName="tenant"
     )
 
     _release_reservation(db, contract, "cancelled")
 
     assert contract.payment_status == "cancelled"
-    assert house.available == 1
+    assert house.available == 0
+
+
+def test_release_reservation_only_changes_contract_state():
+    house = SimpleNamespace(available=0)
+    db = MagicMock()
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    occupied_query = MagicMock()
+    occupied_query.filter.return_value.first.return_value = (99,)
+    db.query.side_effect = [house_query, occupied_query]
+    contract = SimpleNamespace(id=7, payment_status="pending", houseId=8)
+
+    _release_reservation(db, contract, "expired")
+
+    assert contract.payment_status == "expired"
+    assert house.available == 0
+
+
+def test_public_user_payload_excludes_private_profile_fields():
+    user = SimpleNamespace(
+        id=1, name="公开昵称", avatarUrl="/images/a.png", userType=1,
+        email="private@example.com", phone="13800000000", addr="private",
+        identityCard="430000000000000000", seen_id="1", collect_id="2",
+    )
+
+    assert _public_user(user) == {
+        "id": 1, "name": "公开昵称", "avatarUrl": "/images/a.png", "userType": 1,
+    }
 
 
 def test_expire_payment_releases_an_overdue_reservation():
@@ -261,12 +441,19 @@ def test_expire_payment_releases_an_overdue_reservation():
         to_dict=lambda: {"id": 9, "payment_status": "expired"},
     )
     db = MagicMock()
-    db.query.return_value.filter.return_value.with_for_update.return_value.first.side_effect = [contract, house]
+    contract_query = MagicMock()
+    contract_query.filter.return_value.with_for_update.return_value.first.return_value = contract
+    house_query = MagicMock()
+    house_query.filter.return_value.with_for_update.return_value.first.return_value = house
+    empty_query = MagicMock()
+    empty_query.outerjoin.return_value = empty_query
+    empty_query.filter.return_value.first.return_value = None
+    db.query.side_effect = [contract_query, house_query, empty_query, empty_query]
 
     response = expire_payment(9, db=db, current_user=SimpleNamespace(id=3))
 
     assert contract.payment_status == "expired"
-    assert house.available == 1
+    assert house.available == 0
     db.commit.assert_called_once()
     assert response.data["payment_status"] == "expired"
 
@@ -481,7 +668,12 @@ def test_email_code_login_consumes_code_and_issues_token(monkeypatch):
 
     assert response.data.token == "signed-token"
     redis_client.eval.assert_called_once_with(
-        auth._CONSUME_CODE_SCRIPT, 1, "email_login_code:user@example.com", "123456"
+        auth._CONSUME_CODE_SCRIPT,
+        2,
+        "email_login_code:user@example.com",
+        "email_login_code_attempts:user@example.com",
+        "123456",
+        auth._MAX_CODE_ATTEMPTS,
     )
     create_token.assert_called_once_with(
         5, phone="13800000000", email="user@example.com", user_type=1

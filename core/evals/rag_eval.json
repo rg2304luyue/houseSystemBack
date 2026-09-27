@@ -1,13 +1,80 @@
-[
-  {"query": "岳麓区有哪些公开房源快照？", "answerable": true, "expected_source": "yuelu"},
-  {"query": "天心区公开房源的租金是多少？", "answerable": true, "expected_source": "tianxin"},
-  {"query": "芙蓉区有哪些房源记录？", "answerable": true, "expected_source": "furong"},
-  {"query": "开福区的房源快照来源是什么？", "answerable": true, "expected_source": "kaifu"},
-  {"query": "雨花区有哪些公开租赁信息？", "answerable": true, "expected_source": "yuhua"},
-  {"query": "望城区公开房源的面积和租金？", "answerable": true, "expected_source": "wangcheng"},
-  {"query": "长沙县公开房源快照有哪些？", "answerable": true, "expected_source": "changsha_county"},
-  {"query": "浏阳市房源信息的采集日期？", "answerable": true, "expected_source": "liuyang"},
-  {"query": "宁乡市有哪些公开房源记录？", "answerable": true, "expected_source": "ningxiang"},
-  {"query": "火星上一居室的实时租金是多少？", "answerable": false},
-  {"query": "房东张三的身份证号码是什么？", "answerable": false}
-]
+{
+  "schema_version": 2,
+  "description": "Deterministic routing and retrieval evaluation. Historical snapshots never represent current availability.",
+  "cases": [
+    {"id":"hist-yuelu-01","query":"岳麓区有哪些公开房源快照？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuelu_rentals.txt"],"answer":"已检索到岳麓区历史公开快照[1]","required_facts":[{"answer_terms":["岳麓"],"evidence_terms":["区域：岳麓"]}],"citation_required":true,"tags":["historical","yuelu"]},
+    {"id":"hist-yuelu-02","query":"岳麓区历史公开记录来自哪里？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuelu_rentals.txt"],"citation_required":true,"tags":["historical","yuelu"]},
+    {"id":"hist-yuelu-03","query":"查询2026年8月6日采集的岳麓区快照记录","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuelu_rentals.txt"],"citation_required":true,"tags":["historical","yuelu"]},
+
+    {"id":"hist-tianxin-01","query":"天心区公开房源快照记录了什么？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_tianxin_rentals.txt"],"answer":"已检索到天心区历史公开快照[1]","required_facts":[{"answer_terms":["天心"],"evidence_terms":["区域：天心"]}],"citation_required":true,"tags":["historical","tianxin"]},
+    {"id":"hist-tianxin-02","query":"天心区历史公开记录的来源是什么？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_tianxin_rentals.txt"],"citation_required":true,"tags":["historical","tianxin"]},
+    {"id":"hist-tianxin-03","query":"找到采集日期为2026-08-06的天心区记录","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_tianxin_rentals.txt"],"citation_required":true,"tags":["historical","tianxin"]},
+
+    {"id":"hist-furong-01","query":"芙蓉区有哪些公开快照？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_furong_rentals.txt"],"answer":"已检索到芙蓉区历史公开快照[1]","required_facts":[{"answer_terms":["芙蓉"],"evidence_terms":["区域：芙蓉"]}],"citation_required":true,"tags":["historical","furong"]},
+    {"id":"hist-furong-02","query":"芙蓉区历史房源记录的来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_furong_rentals.txt"],"citation_required":true,"tags":["historical","furong"]},
+    {"id":"hist-furong-03","query":"说明芙蓉区快照的采集日期","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_furong_rentals.txt"],"citation_required":true,"tags":["historical","furong"]},
+
+    {"id":"hist-kaifu-01","query":"开福区公开房源快照有哪些？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_kaifu_rentals.txt"],"citation_required":true,"tags":["historical","kaifu"]},
+    {"id":"hist-kaifu-02","query":"开福区过去的公开记录来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_kaifu_rentals.txt"],"citation_required":true,"tags":["historical","kaifu"]},
+    {"id":"hist-kaifu-03","query":"开福区快照是哪天采集的？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_kaifu_rentals.txt"],"citation_required":true,"tags":["historical","kaifu"]},
+
+    {"id":"hist-yuhua-01","query":"雨花区公开房源快照记录","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuhua_rentals.txt"],"citation_required":true,"tags":["historical","yuhua"]},
+    {"id":"hist-yuhua-02","query":"雨花区历史公开记录是从哪里采集的？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuhua_rentals.txt"],"citation_required":true,"tags":["historical","yuhua"]},
+    {"id":"hist-yuhua-03","query":"雨花区公开快照的采集时间","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_yuhua_rentals.txt"],"citation_required":true,"tags":["historical","yuhua"]},
+
+    {"id":"hist-wangcheng-01","query":"望城区有哪些公开房源快照？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_wangcheng_rentals.txt"],"citation_required":true,"tags":["historical","wangcheng"]},
+    {"id":"hist-wangcheng-02","query":"望城区过去的公开记录来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_wangcheng_rentals.txt"],"citation_required":true,"tags":["historical","wangcheng"]},
+    {"id":"hist-wangcheng-03","query":"请查望城区快照的采集日期","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_wangcheng_rentals.txt"],"citation_required":true,"tags":["historical","wangcheng"]},
+
+    {"id":"hist-county-01","query":"长沙县公开房源快照有哪些？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_county_rentals.txt"],"citation_required":true,"tags":["historical","county"]},
+    {"id":"hist-county-02","query":"长沙县历史公开记录的数据来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_county_rentals.txt"],"citation_required":true,"tags":["historical","county"]},
+    {"id":"hist-county-03","query":"长沙县快照是何时采集的？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_county_rentals.txt"],"citation_required":true,"tags":["historical","county"]},
+
+    {"id":"hist-liuyang-01","query":"浏阳市公开房源快照记录","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_liuyang_rentals.txt"],"citation_required":true,"tags":["historical","liuyang"]},
+    {"id":"hist-liuyang-02","query":"浏阳市历史公开记录来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_liuyang_rentals.txt"],"citation_required":true,"tags":["historical","liuyang"]},
+    {"id":"hist-liuyang-03","query":"浏阳市快照的采集日期是什么时候？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_liuyang_rentals.txt"],"citation_required":true,"tags":["historical","liuyang"]},
+
+    {"id":"hist-ningxiang-01","query":"宁乡市公开房源快照有哪些？","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_ningxiang_rentals.txt"],"citation_required":true,"tags":["historical","ningxiang"]},
+    {"id":"hist-ningxiang-02","query":"宁乡市过去的公开记录数据来源","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_ningxiang_rentals.txt"],"citation_required":true,"tags":["historical","ningxiang"]},
+    {"id":"hist-ningxiang-03","query":"查询宁乡市快照的采集日期","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":true,"relevant_sources":["changsha_ningxiang_rentals.txt"],"citation_required":true,"tags":["historical","ningxiang"]},
+
+    {"id":"refuse-rag-01","query":"长沙租房补贴申请标准是什么？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-rag-02","query":"公租房申请条件是什么？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-rag-03","query":"租赁备案线上办理入口在哪里？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-rag-04","query":"保障性租赁住房申请资格有哪些？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-rag-05","query":"住房租赁税率如何计算？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-rag-06","query":"人才租房补贴需要哪些材料？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["policy","guide"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unsupported-policy"]},
+    {"id":"refuse-hist-01","query":"火星殖民地公开房源快照","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unanswerable","historical"]},
+    {"id":"refuse-hist-02","query":"月球背面的历史房源记录","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unanswerable","historical"]},
+    {"id":"refuse-hist-03","query":"亚特兰蒂斯的快照采集日期","expected_route":"historical_snapshot","evaluate_retrieval":true,"knowledge_types":["historical_snapshot"],"answerable":false,"relevant_sources":[],"citation_required":false,"tags":["unanswerable","historical"]},
+
+    {"id":"route-sql-01","query":"推荐岳麓区2000元左右当前可租的房源","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-02","query":"帮我找天心区两室整租","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-03","query":"现在有哪些近地铁房源？","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-04","query":"预算1500到2500元能租到什么？","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-05","query":"房源ID 23的详情","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-06","query":"推荐平台里的热门房源","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-07","query":"有没有80平方米以上的精装整租？","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+    {"id":"route-sql-08","query":"芙蓉区目前在租的一居室","expected_route":"sql","evaluate_retrieval":false,"answerable":true,"tags":["current","sql"]},
+
+    {"id":"route-rag-01","query":"签租房合同有哪些注意事项？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"answer":"合同应写清租金、押金和维修责任[1]","required_facts":[{"answer_terms":["租金","押金"],"evidence_terms":["租金","押金"]}],"citation_required":true,"tags":["guide"]},
+    {"id":"route-rag-02","query":"押金纠纷应该如何处理？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"answer":"应先整理合同、付款和交接记录[1]","required_facts":[{"answer_terms":["合同","付款"],"evidence_terms":["合同","付款记录"]}],"citation_required":true,"tags":["guide"]},
+    {"id":"route-rag-03","query":"租房流程指南","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"citation_required":true,"tags":["guide"]},
+    {"id":"route-rag-04","query":"提前退租要注意什么？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"citation_required":true,"tags":["guide"]},
+    {"id":"route-rag-05","query":"房屋正常损耗的维修责任归谁？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"citation_required":true,"tags":["guide"]},
+    {"id":"route-rag-06","query":"看房检查清单包含什么？","expected_route":"rag","evaluate_retrieval":true,"knowledge_types":["guide"],"answerable":true,"relevant_sources":["rental_general_guide.txt"],"answer":"看房应检查门窗、渗漏和水电燃气[1]","required_facts":[{"answer_terms":["门窗","渗漏"],"evidence_terms":["门窗","渗漏"]}],"citation_required":true,"tags":["guide"]},
+
+    {"id":"route-mixed-01","query":"推荐当前岳麓区房源，并说明签约注意事项","expected_route":"mixed","evaluate_retrieval":false,"answerable":true,"tags":["mixed"]},
+    {"id":"route-mixed-02","query":"现在的可租房源和历史快照有什么差异？","expected_route":"mixed","evaluate_retrieval":false,"answerable":true,"tags":["mixed"]},
+    {"id":"route-mixed-03","query":"帮我找两室整租，再讲讲押金规定","expected_route":"mixed","evaluate_retrieval":false,"answerable":true,"tags":["mixed"]},
+    {"id":"route-mixed-04","query":"2026年快照里的这套房现在还可租吗？","expected_route":"mixed","evaluate_retrieval":false,"answerable":true,"tags":["mixed"]},
+
+    {"id":"route-general-01","query":"你好","expected_route":"general","evaluate_retrieval":false,"answerable":true,"tags":["general"]},
+    {"id":"route-general-02","query":"你能做什么？","expected_route":"general","evaluate_retrieval":false,"answerable":true,"tags":["general"]},
+    {"id":"route-general-03","query":"谢谢你的帮助","expected_route":"general","evaluate_retrieval":false,"answerable":true,"tags":["general"]},
+
+    {"id":"route-weather-01","query":"长沙今天天气怎么样？","expected_route":"weather","evaluate_retrieval":false,"answerable":true,"tags":["weather"]},
+    {"id":"route-weather-02","query":"明天会下雨吗？","expected_route":"weather","evaluate_retrieval":false,"answerable":true,"tags":["weather"]},
+    {"id":"route-weather-03","query":"这周末的出行天气如何？","expected_route":"weather","evaluate_retrieval":false,"answerable":true,"tags":["weather"]}
+  ]
+}

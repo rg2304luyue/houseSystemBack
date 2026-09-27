@@ -25,12 +25,30 @@ from app.db.session import get_db
 from app.models.contract import Contract
 from app.models.house import HouseInfo
 from app.models.user import UserModel
-from app.api.v1.houses import invalidate_house_caches
+from app.services.house_cache import invalidate_house_caches
 from app.schemas.common import APIResponse
+from app.core.validation import parse_iso_date_midnight
+from app.services.occupancy import house_has_active_occupancy
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["contracts"])
+
+
+@router.get("/leases/pending", response_model=APIResponse)
+def list_pending_leases(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Return the current tenant's resumable payment reservations."""
+    from app.api.v1.payments import _expire_pending, pending_contract_is_expired
+    _expire_pending(db)
+    now = utc_now_naive()
+    contracts = db.query(Contract).filter(
+        Contract.tenantId == current_user.id,
+        Contract.payment_status == "pending",
+    ).order_by(Contract.id.desc()).all()
+    return APIResponse(data=[item.to_dict() for item in contracts if not pending_contract_is_expired(item, now)])
 
 
 # ---------------------------------------------------------------------------
@@ -80,18 +98,20 @@ def create_lease(
 
     # ---- 1. Parse and validate dates ----
     try:
-        start_date = datetime.fromisoformat(body.startDate)
-        end_date = datetime.fromisoformat(body.endDate)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="日期格式错误，请使用 YYYY-MM-DD 格式",
-        )
+        start_date = parse_iso_date_midnight(body.startDate)
+        end_date = parse_iso_date_midnight(body.endDate)
+    except HTTPException:
+        raise
 
     if start_date >= end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="开始日期必须早于结束日期",
+        )
+    if start_date.date() < utc_now_naive().date():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="开始日期不能早于今天",
         )
 
     # ---- 2. Lock house row (FOR UPDATE) to prevent concurrent leases ----
@@ -113,6 +133,18 @@ def create_lease(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="该房源已被租赁或不可租",
+        )
+
+    if house_has_active_occupancy(db, house.id, utc_now_naive()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该房源已被预订或出租，请选择其他房源",
+        )
+
+    if house.ownership_status != "verified" or house.landlord_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="房源归属待管理员核验，暂不能签约",
         )
 
     if house.landlord_id is not None and house.landlord_id == current_user.id:
@@ -169,8 +201,8 @@ def create_lease(
     db.add(contract)
     db.flush()
 
-    # Occupy the house
-    house.available = 0
+    # ``available`` is the landlord-controlled listing switch. Occupancy is
+    # derived from active contracts/rentals, so it naturally ends with a lease.
 
     try:
         db.commit()
