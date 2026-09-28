@@ -15,6 +15,7 @@ Paths (under /api/v1 prefix):
 """
 
 import os
+import re
 import secrets
 from datetime import datetime
 
@@ -116,6 +117,13 @@ class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1)
     password: str = Field(min_length=6)
 
+    @field_validator("password")
+    @classmethod
+    def _password_within_bcrypt_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("密码过长，请控制在 72 字节以内")
+        return value
+
 
 class SendPasswordResetCodeRequest(BaseModel):
     email: str
@@ -125,6 +133,13 @@ class ResetPasswordRequest(BaseModel):
     email: str
     password: str = Field(min_length=6)
     code: str
+
+    @field_validator("password")
+    @classmethod
+    def _password_within_bcrypt_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("密码过长，请控制在 72 字节以内")
+        return value
 
 
 class SendLandlordCodeRequest(BaseModel):
@@ -201,6 +216,37 @@ def update_current_user_profile(
                 )
 
     allowed_fields = {"name", "addr", "email", "identityCard", "phone"}
+
+    # --- email/phone normalization, format and uniqueness ---
+    # Legacy user_info has no DB-level unique indexes on these columns, so the
+    # application layer must enforce them explicitly; otherwise email-based
+    # login / password reset can silently target the wrong account.
+    if "email" in data and data["email"] is not None:
+        data["email"] = normalize_email(data["email"])
+        conflict = db.query(UserModel).filter(
+            UserModel.email == data["email"], UserModel.id != current_user.id
+        ).first()
+        if conflict is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="该邮箱已被其他账号使用",
+            )
+    if "phone" in data and data["phone"] is not None:
+        phone = str(data["phone"]).strip()
+        if not re.fullmatch(r"1\d{10}", phone):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="手机号格式不正确",
+            )
+        conflict = db.query(UserModel).filter(
+            UserModel.phone == phone, UserModel.id != current_user.id
+        ).first()
+        if conflict is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="该手机号已被其他账号使用",
+            )
+        data["phone"] = phone
 
     try:
         for key in allowed_fields:
@@ -279,7 +325,7 @@ def send_password_reset_code(
             detail="验证码服务暂不可用，请稍后重试",
         )
 
-    email = body.email.strip().lower()
+    email = normalize_email(body.email)
     redis_client = get_redis()
     client_host = request.client.host if request.client else "unknown"
     ip_key = f"password_reset_ip:{client_host}:{utc_now_naive():%Y%m%d%H%M}"
@@ -329,7 +375,7 @@ def reset_password(
             detail="验证码服务暂不可用",
         )
 
-    email = body.email.strip().lower()
+    email = normalize_email(body.email)
     redis_key = f"password_reset_code:{email}"
     attempt_key = f"password_reset_attempts:{email}"
     consumed = get_redis().eval(_RESET_CODE_SCRIPT, 2, redis_key, attempt_key, body.code, 5)
@@ -371,6 +417,7 @@ def reset_password(
 @router.post("/users/me/landlord/send-code", response_model=APIResponse)
 def send_landlord_upgrade_code(
     body: SendLandlordCodeRequest,
+    background_tasks: BackgroundTasks,
     current_user: UserModel = Depends(get_current_user),
 ):
     """Send a verification code for upgrading to landlord (5-min TTL).
@@ -390,6 +437,11 @@ def send_landlord_upgrade_code(
             detail="验证码服务暂不可用，请稍后重试",
         )
 
+    if not current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先在个人资料中绑定邮箱",
+        )
     email = normalize_email(current_user.email)
     redis_client = get_redis()
     last_send_key = f"landlord_code_last_send:{email}"
@@ -403,7 +455,9 @@ def send_landlord_upgrade_code(
     redis_key = f"email_verification_code:{email}"
     redis_client.set(redis_key, verification_code, ex=300)
 
-    send_landlord_upgrade_email(email, verification_code)
+    # Send in the background: the hand-rolled SMTP client has no read/write
+    # deadline and must not block the request worker.
+    background_tasks.add_task(send_landlord_upgrade_email, email, verification_code)
 
     return APIResponse(code=200, message="验证码发送中，请查收邮件")
 
@@ -432,17 +486,24 @@ def upgrade_to_landlord(
             detail="验证码服务暂不可用",
         )
 
+    if not current_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请先在个人资料中绑定邮箱",
+        )
     email = normalize_email(current_user.email)
     redis_key = f"email_verification_code:{email}"
-    stored_code = get_redis().get(redis_key)
+    attempt_key = f"email_verification_attempts:{email}"
+    # Atomic consume with a bounded attempt budget, same contract as the
+    # password-reset flow: 5 wrong tries destroy the code.
+    consumed = get_redis().eval(_RESET_CODE_SCRIPT, 2, redis_key, attempt_key, body.code, 5)
 
-    if not stored_code or stored_code != body.code:
+    if consumed != 1:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="验证码错误或已过期",
         )
 
-    get_redis().delete(redis_key)
     current_user.userType = 2
     db.commit()
     db.refresh(current_user)

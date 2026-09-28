@@ -8,7 +8,8 @@ from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 _CITATION = re.compile(r"\[(\d+)\]")
-_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_RANGE_CONNECTOR = re.compile(r"(?<=\d)\s*[-—–~～]\s*(?=\d)")
 _LIST_PREFIX = re.compile(r"(?m)^\s*\d+[.)、]\s+")
 _INFERRED_AMENITIES = ("南北通透", "隔音好", "采光好", "交通便利", "通勤方便", "通勤友好", "通勤上比较友好")
 _REVIEW_PROMPT = """You review a rental assistant answer, not answer the user.
@@ -40,8 +41,14 @@ quietness. A subway flag does not prove a convenient commute without a destinati
 
 
 def _numbers(text: str) -> set[Decimal]:
-    """Collect numeric values without citation indices or Markdown numbering."""
+    """Collect numeric values without citation indices or Markdown numbering.
+
+    Range connectors between two digits ("2000-3000", "2000~3000") are
+    separators, not minus signs: normalize them away first so differently
+    written ranges compare equal and no phantom negative enters the set.
+    """
     cleaned = _LIST_PREFIX.sub("", _CITATION.sub("", text))
+    cleaned = _RANGE_CONNECTOR.sub(" ", cleaned)
     return {Decimal(match.group()) for match in _NUMBER.finditer(cleaned)}
 
 

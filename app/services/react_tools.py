@@ -49,9 +49,9 @@ _CITY_ADCODES = {
     "雨花": "430111",
 }
 _BLOCK_REGION_MAP = {
-    # Only include reviewed, unambiguous locations.  Unknown blocks remain
-    # unclassified instead of being guessed from the current (partly dirty)
-    # demo rows.
+    # Only include reviewed, unambiguous locations.  Unknown blocks are simply
+    # not cross-checked here (the map is far from exhaustive); a mapped block
+    # whose region disagrees is still flagged as a real data conflict.
     "德政园": "芙蓉",
     "树木岭": "雨花",
     "泉塘": "长沙县",
@@ -119,9 +119,7 @@ def _house_verification(house: HouseInfo) -> dict[str, object]:
         issues.append("title_rooms_conflict")
 
     expected_region = _BLOCK_REGION_MAP.get(block)
-    if block and expected_region is None:
-        issues.append("block_region_unverified")
-    elif expected_region and region and expected_region != region:
+    if expected_region and region and expected_region != region:
         issues.append("region_block_conflict")
 
     return {
@@ -227,8 +225,16 @@ def search_houses_by_criteria(
             if decoration_name:
                 query = query.filter(HouseInfo.decoration.contains(decoration_name))
             total_count = query.count()
-            houses = query.order_by(HouseInfo.price.asc(), HouseInfo.id.desc()).limit(safe_limit).all()
+            houses = query.order_by(HouseInfo.price.asc(), HouseInfo.id.desc()).limit(
+                min(safe_limit * 4, 20)
+            ).all()
             house_payloads = [_house_payload(house) for house in houses]
+            # Surface verified listings first: truncation must not hide a
+            # recommendable house behind unverified ones.
+            house_payloads.sort(
+                key=lambda item: item.get("verification_status") != "verified"
+            )
+            house_payloads = house_payloads[:safe_limit]
             return _json({
                 "tool_kind": "criteria_search",
                 "excluded_ids": excluded_ids,
@@ -281,8 +287,12 @@ def get_popular_houses(limit: int = 5) -> str:
             total_count = query.count()
             houses = query.order_by(
                 HouseInfo.page_views.desc(), HouseInfo.id.desc()
-            ).limit(safe_limit).all()
+            ).limit(min(safe_limit * 4, 20)).all()
             house_payloads = [_house_payload(house) for house in houses]
+            house_payloads.sort(
+                key=lambda item: item.get("verification_status") != "verified"
+            )
+            house_payloads = house_payloads[:safe_limit]
             return _json({
                 "tool_kind": "popular_houses",
                 "applied_filters": {},

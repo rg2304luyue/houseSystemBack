@@ -44,6 +44,17 @@ def test_numbering_is_not_a_fact_and_numeric_formats_are_equivalent(reviewer):
     assert review_grounded_answer("找房", "1. 月租1800元。", {"houses": [{"price": 1800.0}]})
 
 
+def test_range_connectors_are_not_minus_signs(reviewer):
+    """Differently written ranges must compare equal, not fail as unknown numbers."""
+    from app.services.answer_review import _numbers
+
+    assert _numbers("租金2000-3000元") == _numbers("租金2000到3000元")
+    assert _numbers("2000~3000元") == _numbers("2000 3000元")
+    assert _numbers("2000—3000元") == _numbers("2000-3000元")
+    # No phantom negative from the connector.
+    assert all(value >= 0 for value in _numbers("2000-3000元"))
+
+
 @pytest.mark.parametrize("content", [
     '{"supported": false}', '{"supported": "true"}', '{"supported": 1}',
     '{"supported": true, "extra": 1}', '[]', 'true', 'not json',

@@ -37,11 +37,11 @@ def test_invalidate_house_caches_clears_all_dependent_keys(monkeypatch):
 
     house_cache.invalidate_house_caches(42)
 
-    assert delete_cache.call_args_list == [
-        call("house_info:42"),
+    assert delete_cache.call_args_list == [call("house_info:42")]
+    # Hot/new list keys are prefix-deleted so versioned keys (":v2", ":v3",
+    # future versions) can never drift out of sync with the read side.
+    assert delete_by_prefix.call_args_list == [
         call("house_hot_lists"),
-        call("house_hot_lists:v2"),
         call("house_new_lists"),
-        call("house_new_lists:v2"),
+        call("all_house_infos_count"),
     ]
-    delete_by_prefix.assert_called_once_with("all_house_infos_count")

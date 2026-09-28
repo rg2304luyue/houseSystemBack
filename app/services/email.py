@@ -39,6 +39,9 @@ def _send_email_smtp(email: str, code: str, subject: str, body_template: str) ->
     client_socket = None
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Hand-rolled SMTP has no other deadline; never let a stuck server
+        # block a background task or worker indefinitely.
+        client_socket.settimeout(15)
         client_socket.connect(mail_server)
         recv = client_socket.recv(1024).decode()
         if recv[:3] != "220":

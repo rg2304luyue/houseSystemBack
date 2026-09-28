@@ -113,8 +113,8 @@ def invalidate_house_caches(house_id: int | None = None) -> None:
     """Invalidate every house view affected by an availability change."""
     if house_id is not None:
         RedisCache.delete_cache(f"house_info:{house_id}")
-    RedisCache.delete_cache("house_hot_lists")
-    RedisCache.delete_cache("house_hot_lists:v2")
-    RedisCache.delete_cache("house_new_lists")
-    RedisCache.delete_cache("house_new_lists:v2")
+    # Prefix-delete so versioned keys (":v2", ":v3", ...) can never drift out
+    # of sync with the read side again.
+    RedisCache.delete_by_prefix("house_hot_lists")
+    RedisCache.delete_by_prefix("house_new_lists")
     RedisCache.delete_by_prefix("all_house_infos_count")

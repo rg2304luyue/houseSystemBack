@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.session import get_db
 from app.models.user import UserModel
@@ -47,6 +47,15 @@ class RegisterRequest(BaseModel):
     phone: str = Field(min_length=11, max_length=11)
     password: str = Field(min_length=6)
     email: str
+
+    @field_validator("password")
+    @classmethod
+    def _password_within_bcrypt_limit(cls, value: str) -> str:
+        # bcrypt silently rejects passwords longer than 72 bytes; fail with a
+        # clear 400 instead of an unhandled 500 from the hashing layer.
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("密码过长，请控制在 72 字节以内")
+        return value
 
 
 class LoginRequest(BaseModel):

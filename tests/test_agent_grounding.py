@@ -109,7 +109,7 @@ def test_router_inherits_expanded_anaphora():
     assert route_query("第二套有地铁吗", ["推荐岳麓区房源"]) is QueryRoute.SQL
 
 
-def test_house_conflicts_and_unknown_blocks_are_pending():
+def test_house_conflicts_are_pending_but_unknown_blocks_pass():
     dirty = react_tools._house_payload(_house(
         id=48,
         title="合租·盘锦小区 2室1厅 南",
@@ -124,9 +124,11 @@ def test_house_conflicts_and_unknown_blocks_are_pending():
         "region_block_conflict",
     }
 
+    # The review map only covers a handful of blocks; an unmapped block is not
+    # dirty data by itself and must not bar the listing from recommendation.
     unknown = react_tools._house_payload(_house(block="未收录商圈"))
-    assert unknown["verification_status"] == "pending_verification"
-    assert "block_region_unverified" in unknown["verification_issues"]
+    assert unknown["verification_status"] == "verified"
+    assert "block_region_unverified" not in unknown["verification_issues"]
 
 
 def test_sql_tool_returns_normalized_applied_filters_and_counts(monkeypatch):

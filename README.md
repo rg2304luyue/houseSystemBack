@@ -33,8 +33,8 @@ core/           Agent 配置与模型（agent_config、agent_model、agent_utils
                 与 app/services/react_agent.py 等调用
 exts/           支付宝客户端及本地密钥文件
 images/         头像与房源图片静态目录（启动时挂载为 /images）
-migrations/     Alembic 迁移（versions/ 共 13 个，head = 013_reconciliation_workflow）
-tests/          FastAPI 回归测试（14 个文件、172 个测试函数）
+migrations/     Alembic 迁移（versions/ 共 14 个，head = 014_rental_username_length）
+tests/          FastAPI 回归测试（14 个文件、173 个测试函数）
 alembic.ini           迁移配置（数据库 URL 由 app.core.config 注入）
 pytest.ini            测试配置（testpaths=tests，含 integration / unit 标记）
 requirements.txt      依赖清单
@@ -101,9 +101,9 @@ $env:RUN_MYSQL_INTEGRATION='1'
 
 真实 MySQL 集成测试会遍历全部房源分页、价格带、长沙各区县、AI SQL 工具结果和
 关键跨表关系；测试本身只读。执行前应先运行 `alembic upgrade head`，当前 head 为
-`013_reconciliation_workflow`（共 13 个迁移）。
+`014_rental_username_length`（共 14 个迁移）。
 
-测试目录共 14 个测试文件、172 个测试函数（多处使用 `@pytest.mark.parametrize`，
+测试目录共 14 个测试文件、173 个测试函数（多处使用 `@pytest.mark.parametrize`，
 实际收集数高于此）。
 
 ## 主要接口
